@@ -1025,6 +1025,11 @@ int main(int argc, char *argv[]) {
     free_sampler(&sampler);
     free_tokenizer(&tokenizer);
     free_transformer(&transformer);
+    
+    for (int j=0; j<288; j++) {
+      fprintf(stderr, "\nxSave[%d] = %f",j,xSave[j]);
+    }
+    
     return 0;
 }
 #endif
