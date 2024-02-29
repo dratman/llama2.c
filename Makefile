@@ -7,7 +7,10 @@ CC = gcc
 run: run.c
 	$(CC) -O3 -o run run.c -lm
 	$(CC) -O3 -o runq runq.c -lm
-
+	
+testmain: testmain.c
+	$(CC) -g -o testmain testmain.c -lm
+	
 # useful for a debug build, can then e.g. analyze with valgrind, example:
 # $ valgrind --leak-check=full ./run out/model.bin -n 3
 rundebug: run.c
@@ -74,3 +77,4 @@ testcc:
 clean:
 	rm -f run
 	rm -f runq
+	
