@@ -14,6 +14,9 @@
     #include <sys/mman.h>
 #endif
 
+// PLACE TO SAVE X array after each layer calculation
+float xSave[12000];
+
 // ----------------------------------------------------------------------------
 // Transformer model
 
@@ -108,9 +111,6 @@ void free_run_state(RunState* s) {
     free(s->key_cache);
     free(s->value_cache);
 }
-
-// FOR TESTING ONLY
-// float a,b,c,d,e,f;
 
 void memory_map_weights(TransformerWeights *w, Config* p, float* ptr, int shared_weights) {
     int head_size = p->dim / p->n_heads;
@@ -269,8 +269,6 @@ void matmul(float* xout, float* x, float* w, int n, int d) {
         xout[i] = val;
     }
 }
-// PLACE TO SAVE X array after each layer calculation
-//float xSave[12000]; //dim * n_layers
 
 // Move a single token embedding through all of the successive n_layers layers.
 float* forward(Transformer* transformer, int token, int pos) {
@@ -295,7 +293,8 @@ float* forward(Transformer* transformer, int token, int pos) {
     for(unsigned long long layer = 0; layer < p->n_layers; layer++) {
 
         // FOR TESTING ONLY: copy the current contents of the x array for later scrutiny.
-        //memcpy(xSave + layer * dim * sizeof(*x), x, dim * sizeof(*x));
+        //fprintf(stderr,"\nxSave addr = %p; layer = %llu, dim = %d, sizeof(*x) = %lu; x addr = %p",(void*)xSave + layer * dim * sizeof(*x),layer,dim,sizeof(*x),(void*)x);
+        // memcpy(xSave + layer * dim * sizeof(*x), x, dim * sizeof(*x));
 
         // Each execution of this loop body moves the token vector through one layer.
         // The next line of code seems to be the first one to work with xb in addition to x.
