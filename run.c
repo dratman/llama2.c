@@ -15,7 +15,7 @@
 #endif
 
 // PLACE TO SAVE X array after each layer calculation
-float xSave[12000];
+//float xSave[12000];
 
 // ----------------------------------------------------------------------------
 // Transformer model
@@ -270,6 +270,8 @@ void matmul(float* xout, float* x, float* w, int n, int d) {
     }
 }
 
+static int nGroup = 0;
+
 // Move a single token embedding through all of the successive n_layers layers.
 float* forward(Transformer* transformer, int token, int pos) {
 
@@ -293,8 +295,21 @@ float* forward(Transformer* transformer, int token, int pos) {
     for(unsigned long long layer = 0; layer < p->n_layers; layer++) {
 
         // FOR TESTING ONLY: copy the current contents of the x array for later scrutiny.
+        
         //fprintf(stderr,"\nxSave addr = %p; layer = %llu, dim = %d, sizeof(*x) = %lu; x addr = %p",(void*)xSave + layer * dim * sizeof(*x),layer,dim,sizeof(*x),(void*)x);
-        // memcpy(xSave + layer * dim * sizeof(*x), x, dim * sizeof(*x));
+        
+        // The C library function void *memcpy(void *dest, const void *src, size_t n) 
+        // copies n characters from memory area src to memory area dest.
+        
+        //memcpy(xSave + layer * dim * sizeof(*x), x, dim * sizeof(*x));
+        
+        fprintf(stderr, "\ngroup[%d] = {",nGroup);
+        nGroup++;
+        
+        for(int j = 0; j < 288 ; j++){
+            fprintf(stderr,"%f, ", x[j]);
+        }
+        fprintf(stderr, "};\n");//Just a right curly bracket and a newline.
 
         // Each execution of this loop body moves the token vector through one layer.
         // The next line of code seems to be the first one to work with xb in addition to x.
@@ -1025,10 +1040,6 @@ int main(int argc, char *argv[]) {
     free_sampler(&sampler);
     free_tokenizer(&tokenizer);
     free_transformer(&transformer);
-    
-    for (int j=0; j<288; j++) {
-      fprintf(stderr, "\nxSave[%d] = %f",j,xSave[j]);
-    }
     
     return 0;
 }
