@@ -13,14 +13,14 @@
 python train.py \
     --out_dir="outmini" \
     --batch_size=128 \
-    --max_seq_len=512 \
+    --max_seq_len=256 \
     --gradient_accumulation_steps=1 \
     --vocab_source="custom" \
     --vocab_size=4096 \
-    --dim=64 \
-    --n_layers=5 \
-    --n_heads=8 \
-    --n_kv_heads=4 \
+    --dim=256 \
+    --n_layers=6 \
+    --n_heads=6 \
+    --n_kv_heads=6 \
     --multiple_of=4 \
     --learning_rate=1e-3 \
     --dropout=0.05 \

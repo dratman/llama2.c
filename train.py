@@ -137,6 +137,8 @@ print("Initializing a new model from scratch")
 gptconf = ModelArgs(**model_args)
 model = Transformer(gptconf)
 model.to(device)
+total_params = sum(p.numel() for p in model.parameters())
+print("Total params: {} M".format(total_params/1e6))
 
 # initialize a GradScaler. If enabled=False scaler is a no-op
 scaler = torch.cuda.amp.GradScaler(enabled=(dtype == "float16"))
