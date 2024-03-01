@@ -1,5 +1,7 @@
 /* Inference for Llama-2 Transformer model in pure C */
 
+//#define PRINT_THE_LAYER_INPUTS yes // This is RD's vector output stream.
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <ctype.h>
@@ -13,9 +15,6 @@
     #include <unistd.h>
     #include <sys/mman.h>
 #endif
-
-// PLACE TO SAVE X array after each layer calculation
-//float xSave[12000];
 
 // ----------------------------------------------------------------------------
 // Transformer model
@@ -272,7 +271,7 @@ void matmul(float* xout, float* x, float* w, int n, int d) {
 
 static int nGroup = 0;
 
-// Move a single token embedding through all of the successive n_layers layers.
+// This function moves a single token vector through all of the successive n_layers layers.
 float* forward(Transformer* transformer, int token, int pos) {
 
     // a few convenience variables
@@ -293,25 +292,20 @@ float* forward(Transformer* transformer, int token, int pos) {
 
     // forward all the layers  --------------------------------------------------* TOP OF LAYER LOOP *
     for(unsigned long long layer = 0; layer < p->n_layers; layer++) {
-
-        // FOR TESTING ONLY: copy the current contents of the x array for later scrutiny.
+        // Each execution of this loop body moves the token vector through one layer.
         
-        //fprintf(stderr,"\nxSave addr = %p; layer = %llu, dim = %d, sizeof(*x) = %lu; x addr = %p",(void*)xSave + layer * dim * sizeof(*x),layer,dim,sizeof(*x),(void*)x);
-        
-        // The C library function void *memcpy(void *dest, const void *src, size_t n) 
-        // copies n characters from memory area src to memory area dest.
-        
-        //memcpy(xSave + layer * dim * sizeof(*x), x, dim * sizeof(*x));
-        
+#if defined PRINT_THE_LAYER_INPUTS
+        // Begin printing an assignment statement in Mathematica code.
         fprintf(stderr, "\ngroup[%d] = {",nGroup);
         nGroup++;
-        
+        // Print the dim = 288 floats in one token vector as  
+        // part of the Mathematica assignment statement.
         for(int j = 0; j < 288 ; j++){
             fprintf(stderr,"%f, ", x[j]);
         }
+        // End the Mathematica assignment statement.
         fprintf(stderr, "};\n");//Just a right curly bracket and a newline.
-
-        // Each execution of this loop body moves the token vector through one layer.
+#endif
         // The next line of code seems to be the first one to work with xb in addition to x.
         // (attention rmsnorm)
         rmsnorm(s->xb, x, w->rms_att_weight + layer*dim, dim);
@@ -424,7 +418,7 @@ float* forward(Transformer* transformer, int token, int pos) {
     // classifier into logits
     matmul(s->logits, x, w->wcls, p->dim, p->vocab_size);
     return s->logits;
-} // forward()
+} // END forward()
 
 // ----------------------------------------------------------------------------
 // The Byte Pair Encoding (BPE) Tokenizer that translates strings <-> tokens
@@ -817,7 +811,7 @@ void generate(Transformer *transformer, Tokenizer *tokenizer, Sampler *sampler, 
     while (pos < steps) { 
 
         // forward the transformer to get logits for the next token
-        // This function moves a single token vector through all of the n_layers layers.
+        // forward() moves a single token vector through all of the n_layers layers.
         float* logits = forward(transformer, token, pos);
 
         // advance the state machine
