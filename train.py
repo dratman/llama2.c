@@ -31,7 +31,7 @@ from tinystories import Task
 if torch.backends.mps.is_available():
     device = torch.device("mps")
     device_type = "mps"
-elif torch.backends.cuda.is_available():
+elif torch.cuda.is_available():
     device = torch.device("cuda")
     device_type = "cuda"
 else:
