@@ -28,6 +28,18 @@ from model import Transformer, ModelArgs
 
 from tinystories import Task
 
+if torch.backends.mps.is_available():
+    device = torch.device("mps")
+    device_type = "mps"
+elif torch.backends.cuda.is_available():
+    device = torch.device("cuda")
+    device_type = "cuda"
+else:
+    device = torch.device("cpu")
+    device_type = "cpu"
+
+print("Using device:", device)
+
 # -----------------------------------------------------------------------------
 # I/O
 out_dir = "out"
@@ -36,7 +48,6 @@ log_interval = 1
 eval_iters = 100
 eval_only = False  # if True, script exits right after the first eval
 always_save_checkpoint = False  # if True, always save a checkpoint after each eval
-init_from = "scratch"  # 'scratch' or 'resume'
 
 # data
 batch_size = 128  # if gradient_accumulation_steps > 1, this is the micro-batch size
@@ -66,7 +77,7 @@ decay_lr = True  # whether to decay the learning rate
 warmup_iters = 1000  # how many steps to warm up for
 
 # system
-device = "cuda"  # examples: 'cpu', 'cuda', 'cuda:0', 'cuda:1' etc., or try 'mps' on macbooks
+# device = "cuda"  # examples: 'cpu', 'cuda', 'cuda:0', 'cuda:1' etc., or try 'mps' on macbooks
 dtype = "bfloat16"  # float32|bfloat16|float16
 compile = True  # use PyTorch 2.0 to compile the model to be faster
 # -----------------------------------------------------------------------------
@@ -97,12 +108,12 @@ os.makedirs(out_dir, exist_ok=True)
 torch.manual_seed(1337 + seed_offset)
 torch.backends.cuda.matmul.allow_tf32 = True  # allow tf32 on matmul
 torch.backends.cudnn.allow_tf32 = True  # allow tf32 on cudnn
-device_type = "cuda" if "cuda" in device else "cpu"  # for later use in torch.autocast
+# device_type = "cuda" if "cuda" in device else "cpu"  # for later use in torch.autocast
 # note: float16 data type will automatically use a GradScaler
 ptdtype = {"float32": torch.float32, "bfloat16": torch.bfloat16, "float16": torch.float16}[dtype]
 ctx = (
     nullcontext()
-    if device_type == "cpu"
+    if device_type != "cuda"
     else torch.amp.autocast(device_type=device_type, dtype=ptdtype)
 )
 
@@ -117,7 +128,6 @@ iter_batches = partial(
     num_workers=0,
 )
 
-# init these up here, can override if init_from='resume' (i.e. from a checkpoint)
 iter_num = 0
 best_val_loss = 1e9
 
@@ -148,7 +158,7 @@ optimizer = model.configure_optimizers(weight_decay, learning_rate, (beta1, beta
 checkpoint = None  # free up memory
 
 # compile the model
-if compile:
+if compile and device_type != "mps":
     print("compiling the model... (takes a ~minute)")
     unoptimized_model = model
     model = torch.compile(model)  # requires PyTorch 2.0

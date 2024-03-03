@@ -18,9 +18,9 @@ python train.py \
     --vocab_source="custom" \
     --vocab_size=4096 \
     --dim=256 \
-    --n_layers=6 \
+    --n_layers=4 \
     --n_heads=6 \
-    --n_kv_heads=6 \
+    --n_kv_heads=2 \
     --multiple_of=4 \
     --learning_rate=1e-3 \
     --dropout=0.05 \
