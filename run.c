@@ -52,16 +52,16 @@ typedef struct {
 
 typedef struct {
     // current wave of activations
-    float *x; // activation at current time stamp (dim,)
-    float *xb; // same, but inside a residual branch (dim,)
-    float *xb2; // an additional buffer just for convenience (dim,)
-    float *hb; // buffer for hidden dimension in the ffn (hidden_dim,)
-    float *hb2; // buffer for hidden dimension in the ffn (hidden_dim,)
-    float *q; // query (dim,)
-    float *k; // key (dim,)
-    float *v; // value (dim,)
-    float *att; // buffer for scores/attention values (n_heads, seq_len)
-    float *logits; // output logits
+    float *x;     // activation at current time stamp (dim,)
+    float *xtra_buf_A;    // same, but inside a residual branch (dim,)
+    float *xtra_buf_B;   // an additional buffer just for convenience (dim,)
+    float *hidden_big_buf_A;    // buffer for hidden dimension in the ffn (hidden_dim,)
+    float *hidden_big_buf_B;   // buffer for hidden dimension in the ffn (hidden_dim,)
+    float *q;     // query (dim,)
+    float *k;     // key (dim,)
+    float *v;     // value (dim,)
+    float *att;   // buffer for scores/attention values (n_heads, seq_len)
+    float *logits;// output logits
     // kv cache
     float* key_cache;   // (layer, seq_len, dim)
     float* value_cache; // (layer, seq_len, dim)
@@ -80,18 +80,18 @@ typedef struct {
 void malloc_run_state(RunState* s, Config* p) {
     // we calloc instead of malloc to keep valgrind happy
     int kv_dim = (p->dim * p->n_kv_heads) / p->n_heads;
-    s->x = calloc(p->dim, sizeof(float));
-    s->xb = calloc(p->dim, sizeof(float));
-    s->xb2 = calloc(p->dim, sizeof(float));
-    s->hb = calloc(p->hidden_dim, sizeof(float));
-    s->hb2 = calloc(p->hidden_dim, sizeof(float));
-    s->q = calloc(p->dim, sizeof(float));
-    s->key_cache = calloc(p->n_layers * p->seq_len * kv_dim, sizeof(float));
+    s->x   = calloc(p->dim, sizeof(float));
+    s->xtra_buf_A  = calloc(p->dim, sizeof(float));
+    s->xtra_buf_B = calloc(p->dim, sizeof(float));
+    s->hidden_big_buf_A  = calloc(p->hidden_dim, sizeof(float));
+    s->hidden_big_buf_B = calloc(p->hidden_dim, sizeof(float));
+    s->q   = calloc(p->dim, sizeof(float));
+    s->key_cache   = calloc(p->n_layers * p->seq_len * kv_dim, sizeof(float));
     s->value_cache = calloc(p->n_layers * p->seq_len * kv_dim, sizeof(float));
-    s->att = calloc(p->n_heads * p->seq_len, sizeof(float));
+    s->att    = calloc(p->n_heads * p->seq_len, sizeof(float));
     s->logits = calloc(p->vocab_size, sizeof(float));
     // ensure all mallocs went fine
-    if (!s->x || !s->xb || !s->xb2 || !s->hb || !s->hb2 || !s->q
+    if (!s->x || !s->xtra_buf_A || !s->xtra_buf_B || !s->hidden_big_buf_A || !s->hidden_big_buf_B || !s->q
      || !s->key_cache || !s->value_cache || !s->att || !s->logits) {
         fprintf(stderr, "malloc failed!\n");
         exit(EXIT_FAILURE);
@@ -100,10 +100,10 @@ void malloc_run_state(RunState* s, Config* p) {
 
 void free_run_state(RunState* s) {
     free(s->x);
-    free(s->xb);
-    free(s->xb2);
-    free(s->hb);
-    free(s->hb2);
+    free(s->xtra_buf_A);
+    free(s->xtra_buf_B);
+    free(s->hidden_big_buf_A);
+    free(s->hidden_big_buf_B);
     free(s->q);
     free(s->att);
     free(s->logits);
@@ -203,13 +203,13 @@ void free_transformer(Transformer* t) {
 // }
 
 void rmsnorm(float* output, float* input, float* weight, int dim) {
-    float sum_of_squares = 0.0f;
+    float sum_of_sqd_inputs = 0.0f;
     for (int j = 0; j < dim; j++) {
-        sum_of_squares += input[j] * input[j];
+        sum_of_sqd_inputs += input[j] * input[j];
     }
-    float avg_of_squares = sum_of_squares / dim;
-    avg_of_squares += 1e-5f; // Protect against div by zero.
-    float inverse_rms_of_inputs = 1.0f / sqrtf(avg_of_squares);
+    float avg_of_sqd_inputs = sum_of_sqd_inputs / dim;
+    avg_of_sqd_inputs += 1e-5f; // Protect against div by zero.
+    float inverse_rms_of_inputs = 1.0f / sqrtf(avg_of_sqd_inputs);
     for (int j = 0; j < dim; j++) {
         output[j] = (weight[j] * input[j]) * inverse_rms_of_inputs;
     }
@@ -218,12 +218,12 @@ void rmsnorm(float* output, float* input, float* weight, int dim) {
 // // As far as I can see, size always = dim.  --RD
 // void rmsnorm(float* output_array, float* input_array, float* weight_array, int size) {
 //     // calculate sum of squares
-//     float sum_of_squares = 0.0f;
+//     float sum_of_sqd_inputs = 0.0f;
 //     for (int j = 0; j < size; j++) {
-//         sum_of_squares += input_array[j] * input_array[j];
+//         sum_of_sqd_inputs += input_array[j] * input_array[j];
 //     }
 //     // rms is the sqrt of the mean of the weighted sum of the squares of the values in the input array.
-//     float mean_of_squares = sum_of_squares / n_elements;
+//     float mean_of_squares = sum_of_sqd_inputs / n_elements;
 //     float mean_of_squares += 1e-5f;  // Adding a small increment to avoid zero?
 //     // normalizer is the inverse of the square root of the sum of the squared inputs.
 //     float normalizer = 1.0f / sqrtf(mean_of_squares);
@@ -272,8 +272,7 @@ void matmul(float* xout, float* x, float* w, int n, int d) {
 static int nGroup = 0;
 
 // This function moves a single token vector through all of the successive n_layers layers.
-float* forward(Transformer* transformer, int token, int pos) {
-
+float* forward(Transformer* transformer, int token, int position_in_sequence) {
     // a few convenience variables
     Config* p = &transformer->config;
     TransformerWeights* w = &transformer->weights;
@@ -293,7 +292,6 @@ float* forward(Transformer* transformer, int token, int pos) {
     // forward all the layers  --------------------------------------------------* TOP OF LAYER LOOP *
     for(unsigned long long layer = 0; layer < p->n_layers; layer++) {
         // Each execution of this loop body moves the token vector through one layer.
-        
 #if defined PRINT_THE_LAYER_INPUTS
         // Begin printing an assignment statement in Mathematica code.
         fprintf(stderr, "\ngroup[%d] = {",nGroup);
@@ -301,30 +299,34 @@ float* forward(Transformer* transformer, int token, int pos) {
         // Print the dim = 288 floats in one token vector as  
         // part of the Mathematica assignment statement.
         for(int j = 0; j < 288 ; j++){
-            fprintf(stderr,"%f, ", x[j]);
+            // fprintf(stderr,"%f, ", x[j]);
+            fprintf(stderr,"pos=%d layer=%d",pos,layer)
         }
-        // End the Mathematica assignment statement.
+        // Finish printing the Mathematica assignment statement.
         fprintf(stderr, "};\n");//Just a right curly bracket and a newline.
 #endif
-        // The next line of code seems to be the first one to work with xb in addition to x.
+        // The next line of code seems to be the first one to work with xtra_buf_A in addition to x.
+        // ----- BUT WHAT IS xtra_buf_A ? ----- ? (Something to do with attention heads!)
         // (attention rmsnorm)
-        rmsnorm(s->xb, x, w->rms_att_weight + layer*dim, dim);
+// void rmsnorm(float* output, float* input, float* weight, int dim)
+//      rmsnorm( output , input,              weight              ,    dim )
+        rmsnorm(  s->xtra_buf_A ,   x  ,   w->rms_att_weight + layer*dim  ,    dim );
 
         // key and value point to the kv cache
         int loff = layer * p->seq_len * kv_dim; // kv cache layer offset for convenience
-        s->k = s->key_cache + loff + pos * kv_dim;
-        s->v = s->value_cache + loff + pos * kv_dim;
+        s->k = s->key_cache + loff + position_in_sequence * kv_dim;
+        s->v = s->value_cache + loff + position_in_sequence * kv_dim;
 
         // qkv matmuls for this position
-        matmul(s->q, s->xb, w->wq + layer*dim*dim, dim, dim);
-        matmul(s->k, s->xb, w->wk + layer*dim*kv_dim, dim, kv_dim);
-        matmul(s->v, s->xb, w->wv + layer*dim*kv_dim, dim, kv_dim);
+        matmul(s->q, s->xtra_buf_A, w->wq + layer*dim*dim, dim, dim);
+        matmul(s->k, s->xtra_buf_A, w->wk + layer*dim*kv_dim, dim, kv_dim);
+        matmul(s->v, s->xtra_buf_A, w->wv + layer*dim*kv_dim, dim, kv_dim);
 
         // RoPE relative positional encoding: complex-valued rotate q and k in each head
         for (int i = 0; i < dim; i+=2) {
             int head_dim = i % head_size;
             float freq = 1.0f / powf(10000.0f, head_dim / (float)head_size);
-            float val = pos * freq;
+            float val = position_in_sequence * freq;
             float fcr = cosf(val);
             float fci = sinf(val);
             int rotn = i < kv_dim ? 2 : 1; // how many vectors? 2 = q & k, 1 = q only
@@ -346,7 +348,7 @@ float* forward(Transformer* transformer, int token, int pos) {
             // attention scores for this head
             float* att = s->att + h * p->seq_len;
             // iterate over all timesteps, including the current one
-            for (int t = 0; t <= pos; t++) {
+            for (int t = 0; t <= position_in_sequence; t++) {
                 // get the key vector for this head and at this timestep
                 float* k = s->key_cache + loff + t * kv_dim + (h / kv_mul) * head_size;
                 // calculate the attention score as the dot product of q and k
@@ -359,56 +361,56 @@ float* forward(Transformer* transformer, int token, int pos) {
                 att[t] = score;
             }
 
-            // softmax the scores to get attention weights, from 0..pos inclusively
-            softmax(att, pos + 1);
+            // softmax the scores to get attention weights, from 0..position_in_sequence inclusively
+            softmax(att, position_in_sequence + 1);
 
-            // weighted sum of the values, store back into xb
-            float* xb = s->xb + h * head_size;
-            memset(xb, 0, head_size * sizeof(float));
-            for (int t = 0; t <= pos; t++) {
+            // weighted sum of the values, store back into xtra_buf_A
+            float* xtra_buf_A = s->xtra_buf_A + h * head_size;
+            memset(xtra_buf_A, 0, head_size * sizeof(float));
+            for (int t = 0; t <= position_in_sequence; t++) {
                 // get the value vector for this head and at this timestep
                 float* v = s->value_cache + loff + t * kv_dim + (h / kv_mul) * head_size;
                 // get the attention weight for this timestep
                 float a = att[t];
-                // accumulate the weighted value into xb
+                // accumulate the weighted value into xtra_buf_A
                 for (int i = 0; i < head_size; i++) {
-                    xb[i] += a * v[i];
+                    xtra_buf_A[i] += a * v[i];
                 }
             }
         }
 
         // final matmul to get the output of the attention
-        matmul(s->xb2, s->xb, w->wo + layer*dim*dim, dim, dim);
+        matmul(s->xtra_buf_B, s->xtra_buf_A, w->wo + layer*dim*dim, dim, dim);
 
         // residual connection back into x
         for (int i = 0; i < dim; i++) {
-            x[i] += s->xb2[i];
+            x[i] += s->xtra_buf_B[i];
         }
 
         // ffn rmsnorm
-        rmsnorm(s->xb, x, w->rms_ffn_weight + layer*dim, dim);
+        rmsnorm(s->xtra_buf_A, x, w->rms_ffn_weight + layer*dim, dim);
 
         // Now for FFN in PyTorch we have: self.w2(F.silu(self.w1(x)) * self.w3(x))
         // first calculate self.w1(x) and self.w3(x)
-        matmul(s->hb, s->xb, w->w1 + layer*dim*hidden_dim, dim, hidden_dim);
-        matmul(s->hb2, s->xb, w->w3 + layer*dim*hidden_dim, dim, hidden_dim);
+        matmul(s->hidden_big_buf_A, s->xtra_buf_A, w->w1 + layer*dim*hidden_dim, dim, hidden_dim);
+        matmul(s->hidden_big_buf_B, s->xtra_buf_A, w->w3 + layer*dim*hidden_dim, dim, hidden_dim);
 
         // SwiGLU non-linearity
         for (int i = 0; i < hidden_dim; i++) {
-            float val = s->hb[i];
+            float val = s->hidden_big_buf_A[i];
             // silu(x)=x*σ(x), where σ(x) is the logistic sigmoid
             val *= (1.0f / (1.0f + expf(-val)));
             // elementwise multiply with w3(x)
-            val *= s->hb2[i];
-            s->hb[i] = val;
+            val *= s->hidden_big_buf_B[i];
+            s->hidden_big_buf_A[i] = val;
         }
 
         // final matmul to get the output of the ffn
-        matmul(s->xb, s->hb, w->w2 + layer*dim*hidden_dim, hidden_dim, dim);
+        matmul(s->xtra_buf_A, s->hidden_big_buf_A, w->w2 + layer*dim*hidden_dim, hidden_dim, dim);
 
         // residual connection
         for (int i = 0; i < dim; i++) {
-            x[i] += s->xb[i];
+            x[i] += s->xtra_buf_A[i];
         }
     } // end for *----------------------------------------------------------- * BOTTOM OF LAYER LOOP *
 
@@ -787,7 +789,7 @@ long time_in_ms() {
 
 // ----------------------------------------------------------------------------
 // generation loop
-// One call to this function generates the multiple tokens that respond to the given prompt.
+// One call to this function generates all of the multiple tokens that respond to the given prompt.
 
 void generate(Transformer *transformer, Tokenizer *tokenizer, Sampler *sampler, char *prompt, int steps) {
     char *empty_prompt = "";
@@ -802,27 +804,30 @@ void generate(Transformer *transformer, Tokenizer *tokenizer, Sampler *sampler, 
         exit(EXIT_FAILURE);
     }
 
-    // start the main loop
+    // Start the main loop, which ranges over input and output buffer positions.
     // No embeddings have been processed at all yet.
     long start = 0;  // used to time our code, only initialized after first iteration
     int next;        // will store the next token in the sequence
     int token = prompt_tokens[0]; // kick off with the first token in the prompt
-    int pos = 0;     // position in the sequence
-    while (pos < steps) { 
+    int position_in_sequence = 0;     // position in the sequence
+    while (position_in_sequence < steps) { 
 
         // forward the transformer to get logits for the next token
-        // forward() moves a single token vector through all of the n_layers layers.
-        float* logits = forward(transformer, token, pos);
+        // forward() moves a single token vector through all of 
+        // the n_layers layers.
+        
+        float* logits = forward(transformer, token, position_in_sequence);
 
-        // advance the state machine
-        if (pos < num_prompt_tokens - 1) {
+        //  Advance the state machine: output the next token to the output text buffer.
+        // 'next' is the value of the token that has been processed through the layers.
+        if (position_in_sequence < num_prompt_tokens - 1) {
             // if we are still processing the input prompt, force the next prompt token
-            next = prompt_tokens[pos + 1];
+            next = prompt_tokens[position_in_sequence + 1];
         } else {
             // otherwise sample the next token from the logits
             next = sample(sampler, logits);
         }
-        pos++;
+        position_in_sequence++;
 
         // data-dependent terminating condition: the BOS (=1) token delimits sequences
         if (next == 1) { break; }
@@ -838,14 +843,14 @@ void generate(Transformer *transformer, Tokenizer *tokenizer, Sampler *sampler, 
     }
     printf("\n");
 
-    // report achieved tok/s (pos-1 because the timer starts after first iteration)
-    if (pos > 1) {
+    // report achieved tok/s (position_in_sequence-1 because the timer starts after first iteration)
+    if (position_in_sequence > 1) {
         long end = time_in_ms();
-        fprintf(stderr, "achieved tok/s: %f\n", (pos-1) / (double)(end-start)*1000);
+        fprintf(stderr, "achieved tok/s: %f\n", (position_in_sequence-1) / (double)(end-start)*1000);
     }
 
     free(prompt_tokens);
-}
+} // END generate()
 
 void read_stdin(const char* guide, char* buffer, size_t bufsize) {
     // read a line from stdin, up to but not including \n
@@ -881,14 +886,14 @@ void chat(Transformer *transformer, Tokenizer *tokenizer, Sampler *sampler,
     int next;        // will store the next token in the sequence
     int token;       // stores the current token to feed into the transformer
     int prev_token;
-    int pos = 0;     // position in the sequence
+    int position_in_sequence = 0;     // position in the sequence
     // steps is the most number of characters we're allowed to generate... from seq_len
-    while (pos < steps) {
+    while (position_in_sequence < steps) {
 
         // when it is the user's turn to contribute tokens to the dialog...
         if (user_turn) {
             // get the (optional) system prompt at position 0
-            if (pos == 0) {
+            if (position_in_sequence == 0) {
                 // at position 0, the user can also contribute a system prompt
                 if (cli_system_prompt == NULL) {
                     // system prompt was not passed in, attempt to get it from stdin
@@ -899,7 +904,7 @@ void chat(Transformer *transformer, Tokenizer *tokenizer, Sampler *sampler,
                 }
             }
             // get the user prompt
-            if (pos == 0 && cli_user_prompt != NULL) {
+            if (position_in_sequence == 0 && cli_user_prompt != NULL) {
                 // user prompt for position 0 was passed in, use it
                 strcpy(user_prompt, cli_user_prompt);
             } else {
@@ -907,7 +912,7 @@ void chat(Transformer *transformer, Tokenizer *tokenizer, Sampler *sampler,
                 read_stdin("User: ", user_prompt, sizeof(user_prompt));
             }
             // render user/system prompts into the Llama 2 Chat schema
-            if (pos == 0 && system_prompt[0] != '\0') {
+            if (position_in_sequence == 0 && system_prompt[0] != '\0') {
                 char system_template[] = "[INST] <<SYS>>\n%s\n<</SYS>>\n\n%s [/INST]";
                 sprintf(rendered_prompt, system_template, system_prompt, user_prompt);
             } else {
@@ -933,9 +938,9 @@ void chat(Transformer *transformer, Tokenizer *tokenizer, Sampler *sampler,
         if (token == 2) { user_turn = 1; }
 
         // forward the transformer to get logits for the next token
-        float* logits = forward(transformer, token, pos);
+        float* logits = forward(transformer, token, position_in_sequence);
         next = sample(sampler, logits);
-        pos++;
+        position_in_sequence++;
 
         if (user_idx >= num_prompt_tokens && next != 2) {
             // the Assistant is responding, so print its output
