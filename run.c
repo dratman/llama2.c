@@ -13,6 +13,7 @@
     #include <unistd.h>
     #include <sys/mman.h>
 #endif
+
 // ----------------------------------------------------------------------------
 // Transformer model
 
@@ -108,6 +109,9 @@ void free_run_state(RunState* s) {
     free(s->value_cache);
 }
 
+// FOR TESTING ONLY
+float a,b,c,d,e,f;
+
 void memory_map_weights(TransformerWeights *w, Config* p, float* ptr, int shared_weights) {
     int head_size = p->dim / p->n_heads;
     // make sure the multiplications below are done in 64bit to fit the parameter counts of 13B+ models
@@ -129,7 +133,7 @@ void memory_map_weights(TransformerWeights *w, Config* p, float* ptr, int shared
     w->w1 = ptr;
     ptr += n_layers * p->dim * p->hidden_dim;
     w->w2 = ptr;
-    ptr += n_layers * p->hidden_dim * p->dim;
+    ptr += n_layers * p->hidden_dim * p->dim;         // WHAT IS THIS? n_layers * dim * hidden_dim !
     w->w3 = ptr;
     ptr += n_layers * p->dim * p->hidden_dim;
     w->rms_final_weight = ptr;
@@ -177,7 +181,24 @@ void free_transformer(Transformer* t) {
 }
 
 // ----------------------------------------------------------------------------
-// neural net blocks; the dynamics of the Transformer
+// Neural net blocks; the dynamics of the Transformer.
+// Here we calculate a weighted sum of the input vector components.
+// To normalize, we square each input vector component, sum those squares, take sqrt,
+// then divide the weighted average of the input by that rms value.
+// As far as I can see, size always = dim.  --RD
+// void rmsnorm(float* output, float* input, float* weight, int dim) {
+//     // calculate sum of squares
+//     float sum_of_squares = 0.0f;
+//     for (int j = 0; j < dim; j++) {
+//         sum_of_squares += input[j] * input[j];
+//     }
+//     float avg_of_squares = sum_of_squares / dim;
+//     avg_of_squares += 1e-5f; // Tiny adjustment to avoid zero divisor
+//     // Calculate the weighted sum of the components and divide by rms of components.
+//     for (int j = 0; j < dim; j++) {
+//         output[j] = (weight[j]*input[j])/sqrtf(avg_of_squares);
+//     }
+// }
 
 void rmsnorm(float* o, float* x, float* weight, int size) {
     // calculate sum of squares
@@ -227,7 +248,10 @@ void matmul(float* xout, float* x, float* w, int n, int d) {
         xout[i] = val;
     }
 }
+// PLACE TO SAVE X array after each layer calculation
+float xSave[12000]; //dim * n_layers
 
+// Move a single token embedding through all of the successive n_layers layers.
 float* forward(Transformer* transformer, int token, int pos) {
 
     // a few convenience variables
@@ -243,23 +267,29 @@ float* forward(Transformer* transformer, int token, int pos) {
 
     // copy the token embedding into x
     float* content_row = w->token_embedding_table + token * dim;
+    
     memcpy(x, content_row, dim*sizeof(*x));
 
-    // forward all the layers
-    for(unsigned long long l = 0; l < p->n_layers; l++) {
+    // forward all the layers  --------------------------------------------------* TOP OF LAYER LOOP *
+    for(unsigned long long layer = 0; layer < p->n_layers; layer++) {
 
-        // attention rmsnorm
-        rmsnorm(s->xb, x, w->rms_att_weight + l*dim, dim);
+        // FOR TESTING ONLY -- Save current contents of x array. --------------------
+        memcpy(xSave + (layer*dim*sizeof(*x)), x, dim*sizeof(*x)); //--------------
+
+        // Each execution of this loop body moves the token embedding through one layer.
+        // The next line of code seems to be the first one to work with xb in addition to x.
+        // (attention rmsnorm)
+        rmsnorm(s->xb, x, w->rms_att_weight + layer*dim, dim);
 
         // key and value point to the kv cache
-        int loff = l * p->seq_len * kv_dim; // kv cache layer offset for convenience
+        int loff = layer * p->seq_len * kv_dim; // kv cache layer offset for convenience
         s->k = s->key_cache + loff + pos * kv_dim;
         s->v = s->value_cache + loff + pos * kv_dim;
 
         // qkv matmuls for this position
-        matmul(s->q, s->xb, w->wq + l*dim*dim, dim, dim);
-        matmul(s->k, s->xb, w->wk + l*dim*kv_dim, dim, kv_dim);
-        matmul(s->v, s->xb, w->wv + l*dim*kv_dim, dim, kv_dim);
+        matmul(s->q, s->xb, w->wq + layer*dim*dim, dim, dim);
+        matmul(s->k, s->xb, w->wk + layer*dim*kv_dim, dim, kv_dim);
+        matmul(s->v, s->xb, w->wv + layer*dim*kv_dim, dim, kv_dim);
 
         // RoPE relative positional encoding: complex-valued rotate q and k in each head
         for (int i = 0; i < dim; i+=2) {
@@ -319,7 +349,7 @@ float* forward(Transformer* transformer, int token, int pos) {
         }
 
         // final matmul to get the output of the attention
-        matmul(s->xb2, s->xb, w->wo + l*dim*dim, dim, dim);
+        matmul(s->xb2, s->xb, w->wo + layer*dim*dim, dim, dim);
 
         // residual connection back into x
         for (int i = 0; i < dim; i++) {
@@ -327,12 +357,12 @@ float* forward(Transformer* transformer, int token, int pos) {
         }
 
         // ffn rmsnorm
-        rmsnorm(s->xb, x, w->rms_ffn_weight + l*dim, dim);
+        rmsnorm(s->xb, x, w->rms_ffn_weight + layer*dim, dim);
 
         // Now for FFN in PyTorch we have: self.w2(F.silu(self.w1(x)) * self.w3(x))
         // first calculate self.w1(x) and self.w3(x)
-        matmul(s->hb, s->xb, w->w1 + l*dim*hidden_dim, dim, hidden_dim);
-        matmul(s->hb2, s->xb, w->w3 + l*dim*hidden_dim, dim, hidden_dim);
+        matmul(s->hb, s->xb, w->w1 + layer*dim*hidden_dim, dim, hidden_dim);
+        matmul(s->hb2, s->xb, w->w3 + layer*dim*hidden_dim, dim, hidden_dim);
 
         // SwiGLU non-linearity
         for (int i = 0; i < hidden_dim; i++) {
@@ -345,13 +375,13 @@ float* forward(Transformer* transformer, int token, int pos) {
         }
 
         // final matmul to get the output of the ffn
-        matmul(s->xb, s->hb, w->w2 + l*dim*hidden_dim, hidden_dim, dim);
+        matmul(s->xb, s->hb, w->w2 + layer*dim*hidden_dim, hidden_dim, dim);
 
         // residual connection
         for (int i = 0; i < dim; i++) {
             x[i] += s->xb[i];
         }
-    }
+    } // end for *----------------------------------------------------------- * BOTTOM OF LAYER LOOP *
 
     // final rmsnorm
     rmsnorm(x, x, w->rms_final_weight, dim);
@@ -359,7 +389,7 @@ float* forward(Transformer* transformer, int token, int pos) {
     // classifier into logits
     matmul(s->logits, x, w->wcls, p->dim, p->vocab_size);
     return s->logits;
-}
+} // forward()
 
 // ----------------------------------------------------------------------------
 // The Byte Pair Encoding (BPE) Tokenizer that translates strings <-> tokens
@@ -725,6 +755,7 @@ long time_in_ms() {
 
 // ----------------------------------------------------------------------------
 // generation loop
+// One call to this function generates the multiple tokens that respond to the given prompt.
 
 void generate(Transformer *transformer, Tokenizer *tokenizer, Sampler *sampler, char *prompt, int steps) {
     char *empty_prompt = "";
@@ -740,11 +771,12 @@ void generate(Transformer *transformer, Tokenizer *tokenizer, Sampler *sampler, 
     }
 
     // start the main loop
+    // No embeddings have been processed at all yet.
     long start = 0;  // used to time our code, only initialized after first iteration
     int next;        // will store the next token in the sequence
     int token = prompt_tokens[0]; // kick off with the first token in the prompt
     int pos = 0;     // position in the sequence
-    while (pos < steps) {
+    while (pos < steps) { 
 
         // forward the transformer to get logits for the next token
         float* logits = forward(transformer, token, pos);
@@ -817,6 +849,7 @@ void chat(Transformer *transformer, Tokenizer *tokenizer, Sampler *sampler,
     int token;       // stores the current token to feed into the transformer
     int prev_token;
     int pos = 0;     // position in the sequence
+    // steps is the most number of characters we're allowed to generate... from seq_len
     while (pos < steps) {
 
         // when it is the user's turn to contribute tokens to the dialog...
