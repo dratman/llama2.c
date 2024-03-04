@@ -1,6 +1,6 @@
 /* Inference for Llama-2 Transformer model in pure C */
 
-//#define PRINT_THE_LAYER_INPUTS yes // This is RD's vector output stream.
+#define PRINT_THE_LAYER_INPUTS yes // This is RD's vector output stream.
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -33,17 +33,17 @@ typedef struct {
     // token embedding table
     float* token_embedding_table;    // (vocab_size, dim)
     // weights for rmsnorms
-    float* rms_att_weight; // (layer, dim) rmsnorm weights
-    float* rms_ffn_weight; // (layer, dim)
+    float* rms_att_weight; // (n_layers, dim) rmsnorm weights
+    float* rms_ffn_weight; // (n_layers, dim)
     // weights for matmuls. note dim == n_heads * head_size
-    float* wq; // (layer, dim, n_heads * head_size)
-    float* wk; // (layer, dim, n_kv_heads * head_size)
-    float* wv; // (layer, dim, n_kv_heads * head_size)
-    float* wo; // (layer, n_heads * head_size, dim)
+    float* wq; // (n_layers, dim, n_heads * head_size)
+    float* wk; // (n_layers, dim, n_kv_heads * head_size)
+    float* wv; // (n_layers, dim, n_kv_heads * head_size)
+    float* wo; // (n_layers, n_heads * head_size, dim)
     // weights for ffn
-    float* w1; // (layer, hidden_dim, dim)
-    float* w2; // (layer, dim, hidden_dim)
-    float* w3; // (layer, hidden_dim, dim)
+    float* w1; // (n_layers, hidden_dim, dim)
+    float* w2; // (n_layers, dim, hidden_dim)
+    float* w3; // (n_layers, hidden_dim, dim)
     // final rmsnorm
     float* rms_final_weight; // (dim,)
     // (optional) classifier weights for the logits, on the last layer
@@ -311,14 +311,15 @@ float* forward(Transformer* transformer, int token, int position_in_sequence) {
     for(unsigned long long layer = 0; layer < p->n_layers; layer++) {
         // Each execution of this loop body moves the token vector through one layer.
 #if defined PRINT_THE_LAYER_INPUTS
+        fprintf(stderr,"(* position_in_sequence = %d, layer = %llu *)", position_in_sequence, layer);
+
         // Begin printing an assignment statement in Mathematica code.
-        fprintf(stderr, "\ngroup[%d] = {",nGroup);
+        fprintf(stderr, "\nGroup[%d] = {",nGroup);
         nGroup++;
-        // Print the dim (usually 288) floats in one token vector  
+        // Print the dim (usually 288) floats from one token vector  
         // as part of the Mathematica assignment statement.
         for(int j = 0; j < 288 ; j++){
-            // fprintf(stderr,"%f, ", x[j]);
-            fprintf(stderr,"pos=%d layer=%d",pos,layer)
+            fprintf(stderr,"%f, ", x[j]);
         }
         // Finish printing the Mathematica assignment statement.
         fprintf(stderr, "};\n");//Just a right curly bracket and a newline.
