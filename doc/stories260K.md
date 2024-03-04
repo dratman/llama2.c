@@ -28,6 +28,8 @@ python train.py \
     --compile=True
 ```
 
+
+
 You'll notice that `n_kv_heads` is 4 while `n_heads` is 8, so two heads at a time share their key,value projections, i.e. this model is 2X multiquery. You'll also notice that we're using a custom tokenizer with 512 tokens. The model trained for ~10 minutes (?) on my A100 and achieves validation loss of 1.2968.
 
 Sampling this model at temperature 0.0 (i.e. deterministic greedy argmax sampling) gives:
