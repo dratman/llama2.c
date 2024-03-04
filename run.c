@@ -521,6 +521,9 @@ void safe_printf(char *piece) {
         }
     }
     printf("%s", piece);
+#if defined PRINT_THE_LAYER_INPUTS
+    fprintf(stderr,"(* STORY TEXT = %s *)",piece);
+#endif
 }
 
 int str_lookup(char *str, TokenIndex *sorted_vocab, int vocab_size) {
