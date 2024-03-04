@@ -522,7 +522,7 @@ void safe_printf(char *piece) {
     }
     printf("%s", piece);
 #if defined PRINT_THE_LAYER_INPUTS
-    fprintf(stderr,"(* STORY TEXT = %s *)",piece);
+    fprintf(stderr,"(*--------------------- STORY TEXT = %s ---------------------*)\n",piece);
 #endif
 }
 
