@@ -57,7 +57,7 @@ typedef struct {
     float *xtra_buf_B;   // an additional buffer just for convenience (dim,)
     float *hidden_big_buf_A;    // buffer for hidden dimension in the ffn (hidden_dim,)
     float *hidden_big_buf_B;   // buffer for hidden dimension in the ffn (hidden_dim,)
-    float *q;     // query (dim,)
+    float *query;     // query (dim,)
     float *k;     // key (dim,)
     float *v;     // value (dim,)
     float *att;   // buffer for scores/attention values (n_heads, seq_len)
@@ -85,13 +85,13 @@ void malloc_run_state(RunState* s, Config* p) {
     s->xtra_buf_B = calloc(p->dim, sizeof(float));
     s->hidden_big_buf_A  = calloc(p->hidden_dim, sizeof(float));
     s->hidden_big_buf_B = calloc(p->hidden_dim, sizeof(float));
-    s->q   = calloc(p->dim, sizeof(float));
+    s->query   = calloc(p->dim, sizeof(float));
     s->key_cache   = calloc(p->n_layers * p->seq_len * kv_dim, sizeof(float));
     s->value_cache = calloc(p->n_layers * p->seq_len * kv_dim, sizeof(float));
     s->att    = calloc(p->n_heads * p->seq_len, sizeof(float));
     s->logits = calloc(p->vocab_size, sizeof(float));
     // ensure all mallocs went fine
-    if (!s->x || !s->xtra_buf_A || !s->xtra_buf_B || !s->hidden_big_buf_A || !s->hidden_big_buf_B || !s->q
+    if (!s->x || !s->xtra_buf_A || !s->xtra_buf_B || !s->hidden_big_buf_A || !s->hidden_big_buf_B || !s->query
      || !s->key_cache || !s->value_cache || !s->att || !s->logits) {
         fprintf(stderr, "malloc failed!\n");
         exit(EXIT_FAILURE);
@@ -104,7 +104,7 @@ void free_run_state(RunState* s) {
     free(s->xtra_buf_B);
     free(s->hidden_big_buf_A);
     free(s->hidden_big_buf_B);
-    free(s->q);
+    free(s->query);
     free(s->att);
     free(s->logits);
     free(s->key_cache);
@@ -286,10 +286,7 @@ void matmul(float* xout, float* x, float* w, int n, int d) {
     }
 }
 // PLACE TO SAVE X array after each layer calculation
-float xSave[12000]; //dim * n_layers
-
-// Move a single token embedding through all of the successive n_layers layers.
-float* forward(Transformer* transformer, int token, int pos) {
+//float xSave[12000]; //dim * n_layers
 static int nGroup = 0;
 
 // This function moves a single token vector through all of the successive n_layers layers.
@@ -337,20 +334,20 @@ float* forward(Transformer* transformer, int token, int position_in_sequence) {
         s->v = s->value_cache + loff + position_in_sequence * kv_dim;
 
         // qkv matmuls for this position
-        matmul(s->q, s->xtra_buf_A, w->wq + layer*dim*dim, dim, dim);
+        matmul(s->query, s->xtra_buf_A, w->wq + layer*dim*dim, dim, dim);
         matmul(s->k, s->xtra_buf_A, w->wk + layer*dim*kv_dim, dim, kv_dim);
         matmul(s->v, s->xtra_buf_A, w->wv + layer*dim*kv_dim, dim, kv_dim);
 
-        // RoPE relative positional encoding: complex-valued rotate q and k in each head
+        // RoPE relative positional encoding: complex-valued rotate query and k in each head
         for (int i = 0; i < dim; i+=2) {
             int head_dim = i % head_size;
             float freq = 1.0f / powf(10000.0f, head_dim / (float)head_size);
             float val = position_in_sequence * freq;
             float fcr = cosf(val);
             float fci = sinf(val);
-            int rotn = i < kv_dim ? 2 : 1; // how many vectors? 2 = q & k, 1 = q only
+            int rotn = i < kv_dim ? 2 : 1; // how many vectors? 2 = query & k, 1 = query only
             for (int v = 0; v < rotn; v++) {
-                float* vec = v == 0 ? s->q : s->k; // the vector to rotate (query or key)
+                float* vec = v == 0 ? s->query : s->k; // the vector to rotate (query or key)
                 float v0 = vec[i];
                 float v1 = vec[i+1];
                 vec[i]   = v0 * fcr - v1 * fci;
@@ -363,17 +360,17 @@ float* forward(Transformer* transformer, int token, int position_in_sequence) {
         #pragma omp parallel for private(h)
         for (h = 0; h < p->n_heads; h++) {
             // get the query vector for this head
-            float* q = s->q + h * head_size;
+            float* query = s->query + h * head_size;
             // attention scores for this head
             float* att = s->att + h * p->seq_len;
             // iterate over all timesteps, including the current one
             for (int t = 0; t <= position_in_sequence; t++) {
                 // get the key vector for this head and at this timestep
                 float* k = s->key_cache + loff + t * kv_dim + (h / kv_mul) * head_size;
-                // calculate the attention score as the dot product of q and k
+                // calculate the attention score as the dot product of query and k
                 float score = 0.0f;
                 for (int i = 0; i < head_size; i++) {
-                    score += q[i] * k[i];
+                    score += query[i] * k[i];
                 }
                 score /= sqrtf(head_size);
                 // save the score to the attention buffer
@@ -779,7 +776,7 @@ int sample(Sampler* sampler, float* logits) {
         next = sample_argmax(logits, sampler->vocab_size);
     } else {
         // apply the temperature to the logits
-        for (int q=0; q<sampler->vocab_size; q++) { logits[q] /= sampler->temperature; }
+        for (int query=0; query<sampler->vocab_size; query++) { logits[query] /= sampler->temperature; }
         // apply softmax to the logits to get the probabilities for next token
         softmax(logits, sampler->vocab_size);
         // flip a (float) coin (this is our source of entropy for sampling)
