@@ -296,8 +296,8 @@ float* forward(Transformer* transformer, int token, int position_in_sequence) {
         // Begin printing an assignment statement in Mathematica code.
         fprintf(stderr, "\ngroup[%d] = {",nGroup);
         nGroup++;
-        // Print the dim = 288 floats in one token vector as  
-        // part of the Mathematica assignment statement.
+        // Print the dim (usually 288) floats in one token vector  
+        // as part of the Mathematica assignment statement.
         for(int j = 0; j < 288 ; j++){
             // fprintf(stderr,"%f, ", x[j]);
             fprintf(stderr,"pos=%d layer=%d",pos,layer)
@@ -306,10 +306,8 @@ float* forward(Transformer* transformer, int token, int position_in_sequence) {
         fprintf(stderr, "};\n");//Just a right curly bracket and a newline.
 #endif
         // The next line of code seems to be the first one to work with xtra_buf_A in addition to x.
-        // ----- BUT WHAT IS xtra_buf_A ? ----- ? (Something to do with attention heads!)
         // (attention rmsnorm)
 // void rmsnorm(float* output, float* input, float* weight, int dim)
-//      rmsnorm( output , input,              weight              ,    dim )
         rmsnorm(  s->xtra_buf_A ,   x  ,   w->rms_att_weight + layer*dim  ,    dim );
 
         // key and value point to the kv cache
@@ -339,7 +337,7 @@ float* forward(Transformer* transformer, int token, int position_in_sequence) {
             }
         }
 
-        // multihead attention. iterate over all heads
+        // Multihead attention. Iterate over all heads.
         int h;
         #pragma omp parallel for private(h)
         for (h = 0; h < p->n_heads; h++) {
