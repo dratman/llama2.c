@@ -111,6 +111,9 @@ void free_run_state(RunState* s) {
     free(s->value_cache);
 }
 
+// FOR TESTING ONLY
+float a,b,c,d,e,f;
+
 void memory_map_weights(TransformerWeights *w, Config* p, float* ptr, int shared_weights) {
     int head_size = p->dim / p->n_heads;
     // make sure the multiplications below are done in 64bit to fit the parameter counts of 13B+ models
@@ -179,11 +182,25 @@ void free_transformer(Transformer* t) {
     free_run_state(&t->state);
 }
 
-//----------------------------------------------------------------------------
-//Neural net blocks; the dynamics of the Transformer.
-//The x array is the input.
-//The o array becomes the output.
-//rms output array = the sqrt of the weighted sum of the squares of the inputs.
+// ----------------------------------------------------------------------------
+// Neural net blocks; the dynamics of the Transformer.
+// Here we calculate a weighted sum of the input vector components.
+// To normalize, we square each input vector component, sum those squares, take sqrt,
+// then divide the weighted average of the input by that rms value.
+// As far as I can see, size always = dim.  --RD
+// void rmsnorm(float* output, float* input, float* weight, int dim) {
+//     // calculate sum of squares
+//     float sum_of_squares = 0.0f;
+//     for (int j = 0; j < dim; j++) {
+//         sum_of_squares += input[j] * input[j];
+//     }
+//     float avg_of_squares = sum_of_squares / dim;
+//     avg_of_squares += 1e-5f; // Tiny adjustment to avoid zero divisor
+//     // Calculate the weighted sum of the components and divide by rms of components.
+//     for (int j = 0; j < dim; j++) {
+//         output[j] = (weight[j]*input[j])/sqrtf(avg_of_squares);
+//     }
+// }
 
 
 // void rmsnorm(float* o, float* x, float* weight, int size) {
@@ -268,7 +285,11 @@ void matmul(float* xout, float* x, float* w, int n, int d) {
         xout[i] = val;
     }
 }
+// PLACE TO SAVE X array after each layer calculation
+float xSave[12000]; //dim * n_layers
 
+// Move a single token embedding through all of the successive n_layers layers.
+float* forward(Transformer* transformer, int token, int pos) {
 static int nGroup = 0;
 
 // This function moves a single token vector through all of the successive n_layers layers.
@@ -787,8 +808,7 @@ long time_in_ms() {
 
 // ----------------------------------------------------------------------------
 // generation loop
-// One call to this function generates all of the multiple tokens that respond to the given prompt.
-
+// One call to this function generates the multiple tokens that respond to the given prompt.
 void generate(Transformer *transformer, Tokenizer *tokenizer, Sampler *sampler, char *prompt, int steps) {
     char *empty_prompt = "";
     if (prompt == NULL) { prompt = empty_prompt; }
@@ -801,7 +821,6 @@ void generate(Transformer *transformer, Tokenizer *tokenizer, Sampler *sampler, 
         fprintf(stderr, "something is wrong, expected at least 1 prompt token\n");
         exit(EXIT_FAILURE);
     }
-
     // Start the main loop, which ranges over input and output buffer positions.
     // No embeddings have been processed at all yet.
     long start = 0;  // used to time our code, only initialized after first iteration
@@ -887,7 +906,6 @@ void chat(Transformer *transformer, Tokenizer *tokenizer, Sampler *sampler,
     int position_in_sequence = 0;     // position in the sequence
     // steps is the most number of characters we're allowed to generate... from seq_len
     while (position_in_sequence < steps) {
-
         // when it is the user's turn to contribute tokens to the dialog...
         if (user_turn) {
             // get the (optional) system prompt at position 0
