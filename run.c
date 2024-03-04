@@ -1,6 +1,6 @@
 /* Inference for Llama-2 Transformer model in pure C */
 
-#define PRINT_THE_LAYER_INPUTS yes // This is RD's vector output stream.
+#define _TRACE_ yes // This is RD's vector output stream.
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -301,7 +301,9 @@ float* forward(Transformer* transformer, int token, int position_in_sequence) {
     int kv_mul = p->n_heads / p->n_kv_heads; // integer multiplier of the kv sharing in multiquery
     int hidden_dim =  p->hidden_dim;
     int head_size = dim / p->n_heads;
-
+#if defined _TRACE_
+      fprintf(stderr,"Entering forward()\n");
+#endif
     // copy the token embedding into x
     float* content_row = w->token_embedding_table + token * dim;
     
@@ -310,7 +312,7 @@ float* forward(Transformer* transformer, int token, int position_in_sequence) {
     // forward all the layers  --------------------------------------------------* TOP OF LAYER LOOP *
     for(unsigned long long layer = 0; layer < p->n_layers; layer++) {
         // Each execution of this loop body moves the token vector through one layer.
-#if defined PRINT_THE_LAYER_INPUTS
+#if defined _TRACE_
         fprintf(stderr,"(* position_in_sequence = %d, layer = %llu *)", position_in_sequence, layer);
 
         // Begin printing an assignment statement in Mathematica code.
@@ -521,7 +523,7 @@ void safe_printf(char *piece) {
         }
     }
     printf("%s", piece);
-#if defined PRINT_THE_LAYER_INPUTS
+#if defined _TRACE_
     fprintf(stderr,"(*--------------------- STORY TEXT = %s ---------------------*)\n",piece);
 #endif
 }
@@ -775,6 +777,9 @@ float random_f32(unsigned long long *state) { // random float32 in [0,1)
 int sample(Sampler* sampler, float* logits) {
     // sample the token given the logits and some hyperparameters
     int next;
+#if defined _TRACE_
+      fprintf(stderr,"Entering sample()\n");
+#endif
     if (sampler->temperature == 0.0f) {
         // greedy argmax sampling: take the token with the highest probability
         next = sample_argmax(logits, sampler->vocab_size);
@@ -812,6 +817,9 @@ long time_in_ms() {
 // One call to this function generates the multiple tokens that respond to the given prompt.
 void generate(Transformer *transformer, Tokenizer *tokenizer, Sampler *sampler, char *prompt, int steps) {
     char *empty_prompt = "";
+#if defined _TRACE_
+      fprintf(stderr,"Entering generate()\n");
+#endif
     if (prompt == NULL) { prompt = empty_prompt; }
 
     // encode the (string) prompt into tokens sequence
