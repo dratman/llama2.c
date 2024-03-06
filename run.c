@@ -318,9 +318,9 @@ float* forward(Transformer* transformer, int token, int position_in_sequence) {
         // Begin printing an assignment statement in Mathematica code.
         fprintf(stderr, "\nGroup[%d] = {",nGroup);
         nGroup++;
-        // Print the dim (usually 288) floats from one token vector  
+        // Print the dim (for example, 288) floats from one token vector  
         // as part of the Mathematica assignment statement.
-        for(int j = 0; j < 288 ; j++){
+        for(int j = 0; j < dim ; j++){
             fprintf(stderr,"%f, ", x[j]);
         }
         // Finish printing the Mathematica assignment statement.
@@ -328,8 +328,8 @@ float* forward(Transformer* transformer, int token, int position_in_sequence) {
 #endif
         // The next line of code seems to be the first one to work with xtra_buf_A in addition to x.
         // (attention rmsnorm)
-// void rmsnorm(float* output, float* input, float* weight, int dim)
-        rmsnorm(  s->xtra_buf_A ,   x  ,   w->rms_att_weight + layer*dim  ,    dim );
+// void rmsnorm(float* output, float* input,       float* weight,          int dim)
+        rmsnorm(  s->xtra_buf_A ,   x  ,   w->rms_att_weight+layer*dim  ,    dim );
 
         // key and value point to the kv cache
         int loff = layer * p->seq_len * kv_dim; // kv cache layer offset for convenience
