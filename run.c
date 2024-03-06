@@ -477,7 +477,7 @@ void build_tokenizer(Tokenizer* t, char* tokenizer_path, int vocab_size) {
     FILE *file = fopen(tokenizer_path, "rb");
     if (!file) { fprintf(stderr, "couldn't load %s\n", tokenizer_path); exit(EXIT_FAILURE); }
     if (fread(&t->max_token_length, sizeof(int), 1, file) != 1) {
-          fprintf(stderr, "failed read\n");
+          fprintf(stderr, "failed during read of tokenizer\n");
           exit(EXIT_FAILURE); 
     }
     int len;
