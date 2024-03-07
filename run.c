@@ -202,23 +202,6 @@ void free_transformer(Transformer* t) {
 //     }
 // }
 
-
-// void rmsnorm(float* o, float* x, float* weight, int size) {
-       // output[j] = (input[j] * weight[j]) / sqrt((x[j]^2/dim) + 1e-5f)
-       // output[j] = (weight[j] * input[j]) / rms(inputs)
-//     float ss = 0.0f;
-//     for (int j = 0; j < size; j++) {
-//         ss += x[j] * x[j];
-//     }
-//     ss /= size;
-//     ss += 1e-5f;
-//     ss = 1.0f / sqrtf(ss);
-//     // normalize and scale
-//     for (int j = 0; j < size; j++) {
-//         o[j] = weight[j] * (ss * x[j]);
-//     }
-// }
-
 void rmsnorm(float* output, float* input, float* weight, int dim) {
     float sum_of_sqd_inputs = 0.0f;
     for (int j = 0; j < dim; j++) {
@@ -231,26 +214,6 @@ void rmsnorm(float* output, float* input, float* weight, int dim) {
         output[j] = (weight[j] * input[j]) * inverse_rms_of_inputs;
     }
 }
-
-// // As far as I can see, size always = dim.  --RD
-// void rmsnorm(float* output_array, float* input_array, float* weight_array, int size) {
-//     // calculate sum of squares
-//     float sum_of_sqd_inputs = 0.0f;
-//     for (int j = 0; j < size; j++) {
-//         sum_of_sqd_inputs += input_array[j] * input_array[j];
-//     }
-//     // rms is the sqrt of the mean of the weighted sum of the squares of the values in the input array.
-//     float mean_of_squares = sum_of_sqd_inputs / n_elements;
-//     float mean_of_squares += 1e-5f;  // Adding a small increment to avoid zero?
-//     // normalizer is the inverse of the square root of the sum of the squared inputs.
-//     float normalizer = 1.0f / sqrtf(mean_of_squares);
-//     float input_array[6], output_array[6]
-//     // normalize and scale
-//     // weighted_sum = Sum (weight[j] * input_array[j]) / input_array[j]^2)
-//     for (int j = 0; j < size; j++) {
-//         output[j] = normalizer * weight_array[j] * (input_array[j]);
-//     }
-// }
 
 void softmax(float* x, int size) {
     // find max value (for numerical stability)
@@ -285,8 +248,7 @@ void matmul(float* xout, float* x, float* w, int n, int d) {
         xout[i] = val;
     }
 }
-// PLACE TO SAVE X array after each layer calculation
-//float xSave[12000]; //dim * n_layers
+
 static int nGroup = 0;
 
 // This function moves a single token vector through all of the successive n_layers layers.
@@ -302,7 +264,7 @@ float* forward(Transformer* transformer, int token, int position_in_sequence) {
     int hidden_dim =  p->hidden_dim;
     int head_size = dim / p->n_heads;
 #if defined _TRACE_
-      fprintf(stderr,"Entering forward()\n");
+      fprintf(stderr,"Entering forward(); dim = %d\n", dim);
 #endif
     // copy the token embedding into x
     float* content_row = w->token_embedding_table + token * dim;
@@ -978,7 +940,6 @@ void chat(Transformer *transformer, Tokenizer *tokenizer, Sampler *sampler,
     printf("\n");
     free(prompt_tokens);
 }
-
 
 // ----------------------------------------------------------------------------
 // CLI, include only if not testing
