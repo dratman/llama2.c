@@ -1,0 +1,16 @@
+This model was trained as follows:
+(training command was lost)
+-----
+The model was inferenced as follows:
+./run stories260K-vocab-512-2024-03-05.bin -z tokenizer-512-2024-03-05.bin 2>storylog-2024-03-06b
+-----
+Thus it required stories260K-vocab-512-2024-03-05.bin and tokenizer-512-2024-03-05.bin to be present at the top level of the folder which was the working directory when it was inferenced.
+-----
+Inferencing this model produced the following story:
+One day, Abigail was playing in the garden. She was glad to be able to fly high in the sky around the fields. Suddenly, the delicate flowers started to rise and become soft. Abigail was surprised but also excited.
+The other delicate flowers in the garden went on and they ran together everywhere. Abigail followed the flowers around the garden, so every morning the delicate flowers came a fair.
+The flower was so colourful! It glittered, and it smelled like a tiny word.
+E
+-----
+Inferencing the model also produced this storylog:
+storylog-2024-03-06b.txt
