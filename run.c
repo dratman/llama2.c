@@ -55,7 +55,7 @@ typedef struct {
     float *x;     // activation at current time stamp (dim,)
     float *xtra_buf_A;    // same, but inside a residual branch (dim,)
     float *xtra_buf_B;   // an additional buffer just for convenience (dim,)
-    float *hidden_big_buf_A;    // buffer for hidden dimension in the ffn (hidden_dim,)
+    float *hidden_big_buf_A;   // buffer for hidden dimension in the ffn (hidden_dim,)
     float *hidden_big_buf_B;   // buffer for hidden dimension in the ffn (hidden_dim,)
     float *query;     // query (dim,)
     float *k;     // key (dim,)
@@ -236,8 +236,15 @@ void softmax(float* x, int size) {
 } // softmax
 
 void matmul(float* xout, float* x, float* w, int n, int d) {
-    // W (d,n) @ x (n,) -> xout (d,)
-    // by far the most amount of time is spent inside this little function
+    // w is a matrix of floats,    d rows x n columns (the "weights")
+    // x is a vector of floats,    n rows x 1 column  (the input vector)
+    // xout is a vector of floats, d rows x 1 column  (the output vector)
+    // So this is w . x --> xout, a vector change of basis from in to out.
+    // For a linear layer, this would be used as follows:
+    // x is the input from the prior layer, 
+    // xout is the output to the next layer.
+    // w is the matrix of weights belonging to this layer.
+    // "By far the most amount of time is spent inside this little function." -Karpathy
     int i;
     #pragma omp parallel for private(i)
     for (i = 0; i < d; i++) {
