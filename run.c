@@ -1,6 +1,6 @@
 /* Inference for Llama-2 Transformer model in pure C */
 
-#define _TRACE_ yes // This is RD's vector output stream.
+//#define _TRACE_ yes // This is RD's vector output stream.
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -239,7 +239,7 @@ void matmul(float* xout, float* x, float* w, int n, int d) {
     // w is a matrix of floats,    d rows x n columns (the "weights")
     // x is a vector of floats,    n rows x 1 column  (the input vector)
     // xout is a vector of floats, d rows x 1 column  (the output vector)
-    // So this is w . x --> xout, a vector change of basis from in to out.
+    // So this is w . x --> xout, a matrix transformation of the input embedding.
     // For a linear layer, this would be used as follows:
     // x is the input from the prior layer, 
     // xout is the output to the next layer.
@@ -1027,6 +1027,22 @@ int main(int argc, char *argv[]) {
         fprintf(stderr, "unknown mode: %s\n", mode);
         error_usage();
     }
+    
+// typedef struct {
+//     int dim; // transformer dimension
+//     int hidden_dim; // for ffn layers
+//     int n_layers; // number of layers
+//     int n_heads; // number of query heads
+//     int n_kv_heads; // number of key/value heads (can be < query heads because of multiquery)
+//     int vocab_size; // vocabulary size, usually 256 (byte-level)
+//     int seq_len; // max sequence length
+// } Config;
+
+    fprintf(stderr,"------ dim = %d\n", transformer.config.dim);
+    fprintf(stderr,"------ hidden_dim = %d\n", transformer.config.hidden_dim);
+    fprintf(stderr,"------ n_layers = %d\n", transformer.config.n_layers);
+    fprintf(stderr,"------ vocab_size = %d\n", transformer.config.vocab_size);
+    fprintf(stderr,"------ seq_len = %d\n", transformer.config.seq_len);
 
     // memory and file handles cleanup
     free_sampler(&sampler);
