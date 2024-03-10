@@ -112,7 +112,7 @@ void free_run_state(RunState* s) {
 }
 
 // FOR TESTING ONLY
-float a,b,c,d,e,f;
+// float a,b,c,d,e,f;
 
 void memory_map_weights(TransformerWeights *w, Config* p, float* ptr, int shared_weights) {
     int head_size = p->dim / p->n_heads;
@@ -241,7 +241,7 @@ void matmul(float* xout, float* x, float* w, int n, int d) {
     // xout is a vector of floats, d rows x 1 column  (the output vector)
     // So this is w . x --> xout, a matrix transformation of the input embedding.
     // For a linear layer, this would be used as follows:
-    // x is the input from the prior layer, 
+    // x is the input from the prior layer,
     // xout is the output to the next layer.
     // w is the matrix of weights belonging to this layer.
     // "By far the most amount of time is spent inside this little function." -Karpathy
@@ -265,18 +265,18 @@ float* forward(Transformer* transformer, int token, int position_in_sequence) {
     TransformerWeights* w = &transformer->weights;
     RunState* s = &transformer->state;
     float *x = s->x;
-    int dim = p->dim;
+//    int dim = p->dim;
     int kv_dim = (p->dim * p->n_kv_heads) / p->n_heads;
     int kv_mul = p->n_heads / p->n_kv_heads; // integer multiplier of the kv sharing in multiquery
     int hidden_dim =  p->hidden_dim;
-    int head_size = dim / p->n_heads;
+    int head_size = p->dim / p->n_heads;
 #if defined _TRACE_
-      fprintf(stderr,"Entering forward(); dim = %d\n", dim);
+      fprintf(stderr,"Entering forward(); p->dim = %d\n", p->dim);
 #endif
     // copy the token embedding into x
-    float* content_row = w->token_embedding_table + token * dim;
-    
-    memcpy(x, content_row, dim*sizeof(*x));
+    float* content_row = w->token_embedding_table + token * p->dim;
+
+    memcpy(x, content_row, p->dim*sizeof(*x));
 
     // forward all the layers  --------------------------------------------------* TOP OF LAYER LOOP *
     for(unsigned long long layer = 0; layer < p->n_layers; layer++) {
@@ -287,9 +287,9 @@ float* forward(Transformer* transformer, int token, int position_in_sequence) {
         // Begin printing an assignment statement in Mathematica code.
         fprintf(stderr, "\nGroup[%d] = {",nGroup);
         nGroup++;
-        // Print the dim (for example, 288) floats from one token vector  
+        // Print the dim (for example, 288) floats from one token vector
         // as part of the Mathematica assignment statement.
-        for(int j = 0; j < dim ; j++){
+        for(int j = 0; j < p->dim ; j++){
             fprintf(stderr,"%f, ", x[j]);
         }
         // Finish printing the Mathematica assignment statement.
@@ -298,7 +298,7 @@ float* forward(Transformer* transformer, int token, int position_in_sequence) {
         // The next line of code seems to be the first one to work with xtra_buf_A in addition to x.
         // (attention rmsnorm)
 // void rmsnorm(float* output, float* input,       float* weight,          int dim)
-        rmsnorm(  s->xtra_buf_A ,   x  ,   w->rms_att_weight+layer*dim  ,    dim );
+        rmsnorm(  s->xtra_buf_A ,   x  ,   w->rms_att_weight+layer*p->dim  ,    p->dim );
 
         // key and value point to the kv cache
         int loff = layer * p->seq_len * kv_dim; // kv cache layer offset for convenience
@@ -306,12 +306,12 @@ float* forward(Transformer* transformer, int token, int position_in_sequence) {
         s->v = s->value_cache + loff + position_in_sequence * kv_dim;
 
         // qkv matmuls for this position
-        matmul(s->query, s->xtra_buf_A, w->wq + layer*dim*dim, dim, dim);
-        matmul(s->k, s->xtra_buf_A, w->wk + layer*dim*kv_dim, dim, kv_dim);
-        matmul(s->v, s->xtra_buf_A, w->wv + layer*dim*kv_dim, dim, kv_dim);
+        matmul(s->query, s->xtra_buf_A, w->wq + layer*p->dim*p->dim, p->dim, p->dim);
+        matmul(s->k, s->xtra_buf_A, w->wk + layer*p->dim*kv_dim, p->dim, kv_dim);
+        matmul(s->v, s->xtra_buf_A, w->wv + layer*p->dim*kv_dim, p->dim, kv_dim);
 
         // RoPE relative positional encoding: complex-valued rotate query and k in each head
-        for (int i = 0; i < dim; i+=2) {
+        for (int i = 0; i < p->dim; i+=2) {
             int head_dim = i % head_size;
             float freq = 1.0f / powf(10000.0f, head_dim / (float)head_size);
             float val = position_in_sequence * freq;
@@ -368,20 +368,20 @@ float* forward(Transformer* transformer, int token, int position_in_sequence) {
         }
 
         // final matmul to get the output of the attention
-        matmul(s->xtra_buf_B, s->xtra_buf_A, w->wo + layer*dim*dim, dim, dim);
+        matmul(s->xtra_buf_B, s->xtra_buf_A, w->wo + layer*p->dim*p->dim, p->dim, p->dim);
 
         // residual connection back into x
-        for (int i = 0; i < dim; i++) {
+        for (int i = 0; i < p->dim; i++) {
             x[i] += s->xtra_buf_B[i];
         }
 
         // ffn rmsnorm
-        rmsnorm(s->xtra_buf_A, x, w->rms_ffn_weight + layer*dim, dim);
+        rmsnorm(s->xtra_buf_A, x, w->rms_ffn_weight + layer*p->dim, p->dim);
 
         // Now for FFN in PyTorch we have: self.w2(F.silu(self.w1(x)) * self.w3(x))
         // first calculate self.w1(x) and self.w3(x)
-        matmul(s->hidden_big_buf_A, s->xtra_buf_A, w->w1 + layer*dim*hidden_dim, dim, hidden_dim);
-        matmul(s->hidden_big_buf_B, s->xtra_buf_A, w->w3 + layer*dim*hidden_dim, dim, hidden_dim);
+        matmul(s->hidden_big_buf_A, s->xtra_buf_A, w->w1 + layer*p->dim*hidden_dim, p->dim, hidden_dim);
+        matmul(s->hidden_big_buf_B, s->xtra_buf_A, w->w3 + layer*p->dim*hidden_dim, p->dim, hidden_dim);
 
         // SwiGLU non-linearity
         for (int i = 0; i < hidden_dim; i++) {
@@ -394,16 +394,16 @@ float* forward(Transformer* transformer, int token, int position_in_sequence) {
         }
 
         // final matmul to get the output of the ffn
-        matmul(s->xtra_buf_A, s->hidden_big_buf_A, w->w2 + layer*dim*hidden_dim, hidden_dim, dim);
+        matmul(s->xtra_buf_A, s->hidden_big_buf_A, w->w2 + layer*p->dim*hidden_dim, hidden_dim, p->dim);
 
         // residual connection
-        for (int i = 0; i < dim; i++) {
+        for (int i = 0; i < p->dim; i++) {
             x[i] += s->xtra_buf_A[i];
         }
     } // end for *----------------------------------------------------------- * BOTTOM OF LAYER LOOP *
 
     // final rmsnorm
-    rmsnorm(x, x, w->rms_final_weight, dim);
+    rmsnorm(x, x, w->rms_final_weight, p->dim);
 
     // classifier into logits
     matmul(s->logits, x, w->wcls, p->dim, p->vocab_size);
@@ -447,7 +447,7 @@ void build_tokenizer(Tokenizer* t, char* tokenizer_path, int vocab_size) {
     if (!file) { fprintf(stderr, "couldn't load %s\n", tokenizer_path); exit(EXIT_FAILURE); }
     if (fread(&t->max_token_length, sizeof(int), 1, file) != 1) {
           fprintf(stderr, "failed during read of tokenizer\n");
-          exit(EXIT_FAILURE); 
+          exit(EXIT_FAILURE);
     }
     int len;
     for (int i = 0; i < vocab_size; i++) {
@@ -805,12 +805,12 @@ void generate(Transformer *transformer, Tokenizer *tokenizer, Sampler *sampler, 
     int next;        // will store the next token in the sequence
     int token = prompt_tokens[0]; // kick off with the first token in the prompt
     int position_in_sequence = 0;     // position in the sequence
-    while (position_in_sequence < steps) { 
+    while (position_in_sequence < steps) {
 
         // forward the transformer to get logits for the next token
-        // forward() moves a single token vector through all of 
+        // forward() moves a single token vector through all of
         // the n_layers layers.
-        
+
         float* logits = forward(transformer, token, position_in_sequence);
 
         //  Advance the state machine: output the next token to the output text buffer.
@@ -837,6 +837,12 @@ void generate(Transformer *transformer, Tokenizer *tokenizer, Sampler *sampler, 
         if (start == 0) { start = time_in_ms(); }
     }
     printf("\n");
+
+    fprintf(stderr,"------ dim = %d\n", transformer->config.dim);
+    fprintf(stderr,"------ hidden_dim = %d\n", transformer->config.hidden_dim);
+    fprintf(stderr,"------ n_layers = %d\n", transformer->config.n_layers);
+    fprintf(stderr,"------ vocab_size = %d\n", transformer->config.vocab_size);
+    fprintf(stderr,"------ seq_len = %d\n", transformer->config.seq_len);
 
     // report achieved tok/s (position_in_sequence-1 because the timer starts after first iteration)
     if (position_in_sequence > 1) {
@@ -1027,28 +1033,25 @@ int main(int argc, char *argv[]) {
         fprintf(stderr, "unknown mode: %s\n", mode);
         error_usage();
     }
-    
-// typedef struct {
-//     int dim; // transformer dimension
-//     int hidden_dim; // for ffn layers
-//     int n_layers; // number of layers
-//     int n_heads; // number of query heads
-//     int n_kv_heads; // number of key/value heads (can be < query heads because of multiquery)
-//     int vocab_size; // vocabulary size, usually 256 (byte-level)
-//     int seq_len; // max sequence length
-// } Config;
 
-    fprintf(stderr,"------ dim = %d\n", transformer.config.dim);
-    fprintf(stderr,"------ hidden_dim = %d\n", transformer.config.hidden_dim);
-    fprintf(stderr,"------ n_layers = %d\n", transformer.config.n_layers);
-    fprintf(stderr,"------ vocab_size = %d\n", transformer.config.vocab_size);
-    fprintf(stderr,"------ seq_len = %d\n", transformer.config.seq_len);
+    if (argc >= 2) {
+        checkpoint_path = argv[1];
+    } else {
+        error_usage();
+    }
+
+    if (argc >= 4) {
+      fprintf(stderr,
+          "\nargc = %d; \nargv[0] = %s; \nargv[1] = %s; \nargv[2] = %s; \nargv[3] = %s \n",
+          argc, argv[0], argv[1], argv[2], argv[3]);
+     }
 
     // memory and file handles cleanup
     free_sampler(&sampler);
     free_tokenizer(&tokenizer);
     free_transformer(&transformer);
-    
+
     return 0;
-}
+} // END main()
+
 #endif
