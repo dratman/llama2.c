@@ -1,25 +1,15 @@
 #!/bin/bash
 
-
-# conda create -n pt python==3.10 -y
-# conda activate pt
-# conda install pytorch torchvision torchaudio pytorch-cuda=12.1 -c pytorch -c nvidia -y
-# conda install -c conda-forge tqdm sentencepiece -y
-
-# python tinystories.py download
-# python tinystories.py train_vocab --vocab_size=4096
-# python tinystories.py pretokenize --vocab_size=4096
-
 python train.py \
     --out_dir="outmini" \
-    --batch_size=128 \
+    --batch_size=64 \
     --max_seq_len=256 \
     --gradient_accumulation_steps=1 \
     --vocab_source="custom" \
-    --vocab_size=4096 \
-    --dim=256 \
+    --vocab_size=1024 \
+    --dim=64 \
     --n_layers=4 \
-    --n_heads=6 \
+    --n_heads=4 \
     --n_kv_heads=2 \
     --multiple_of=4 \
     --learning_rate=1e-3 \
@@ -28,8 +18,8 @@ python train.py \
     --max_iters=100000 \
     --beta2=0.99 \
     --warmup_iters=1000 \
-    --eval_interval=5000 \
+    --eval_interval=2000 \
     --eval_iters=100 \
-    --log_interval=500 \
+    --log_interval=250 \
     --compile=True
 

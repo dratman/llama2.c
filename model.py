@@ -109,14 +109,6 @@ class Attention(nn.Module):
         self.resid_dropout = nn.Dropout(args.dropout)
         self.dropout = args.dropout
 
-        # use flash attention or a manual implementation?
-        self.flash = hasattr(torch.nn.functional, 'scaled_dot_product_attention')
-        if not self.flash:
-            print("WARNING: using slow attention. Flash Attention requires PyTorch >= 2.0")
-            mask = torch.full((1, 1, args.max_seq_len, args.max_seq_len), float("-inf"))
-            mask = torch.triu(mask, diagonal=1)
-            self.register_buffer("mask", mask)
-
     def forward(
         self,
         x: torch.Tensor,
@@ -143,17 +135,12 @@ class Attention(nn.Module):
         xk = xk.transpose(1, 2)
         xv = xv.transpose(1, 2)
 
-        # flash implementation
-        if self.flash:
-            output = torch.nn.functional.scaled_dot_product_attention(xq, xk, xv, attn_mask=None, dropout_p=self.dropout if self.training else 0.0, is_causal=True)
-        else:
-            # manual implementation
-            scores = torch.matmul(xq, xk.transpose(2, 3)) / math.sqrt(self.head_dim)
-            assert hasattr(self, 'mask')
-            scores = scores + self.mask[:, :, :seqlen, :seqlen]   # (bs, n_local_heads, seqlen, cache_len + seqlen)
-            scores = F.softmax(scores.float(), dim=-1).type_as(xq)
-            scores = self.attn_dropout(scores)
-            output = torch.matmul(scores, xv)  # (bs, n_local_heads, seqlen, head_dim)
+        # flash-attn implementation
+        output = torch.nn.functional.scaled_dot_product_attention(
+            xq, xk, xv, attn_mask=None, 
+            dropout_p = self.dropout if self.training else 0.0, 
+            is_causal=True
+        )
 
         # restore time as batch dimension and concat heads
         output = output.transpose(1, 2).contiguous().view(bsz, seqlen, -1)
@@ -177,7 +164,13 @@ class FeedForward(nn.Module):
         self.dropout = nn.Dropout(dropout)
 
     def forward(self, x):
-        return self.dropout(self.w2(F.silu(self.w1(x)) * self.w3(x)))
+        y1 = self.w1(x)  # first linear on input
+        y2 = self.w3(x)  # second linear on input
+        y3 = F.silu(y1)  # non linear function
+        y4 = y3*y2       # pointwise mult
+        y5 = self.w2(y4) # final linear
+        out = self.dropout(y5)
+        return out
 
 
 class TransformerBlock(nn.Module):
@@ -198,8 +191,12 @@ class TransformerBlock(nn.Module):
         self.ffn_norm = RMSNorm(args.dim, eps=args.norm_eps)
 
     def forward(self, x, freqs_cos, freqs_sin):
-        h = x + self.attention.forward(self.attention_norm(x), freqs_cos, freqs_sin)
-        out = h + self.feed_forward.forward(self.ffn_norm(h))
+        y1 = self.attention_norm(x) # first RMSnorm
+        y2 = self.attention.forward(y1, freqs_cos, freqs_sin) # attention
+        h = x + y2 # 1st skip connection
+        y3 = self.ffn_norm(h) # second RMSnorm
+        y4 = self.feed_forward.forward(y3) # feedforward network
+        out = h + y4 # 2nd skip connection
         return out
 
 
