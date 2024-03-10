@@ -23,7 +23,6 @@ class ModelArgs:
     max_seq_len: int = 2048
     dropout: float = 0.0
 
-
 class RMSNorm(torch.nn.Module):
     def __init__(self, dim: int, eps: float):
         super().__init__()
@@ -36,7 +35,6 @@ class RMSNorm(torch.nn.Module):
     def forward(self, x):
         output = self._norm(x.float()).type_as(x)
         return output * self.weight
-
 
 def precompute_freqs_cis(dim: int, end: int, theta: float = 10000.0):
     freqs = 1.0 / (theta ** (torch.arange(0, dim, 2)[: (dim // 2)].float() / dim))
@@ -150,7 +148,6 @@ class Attention(nn.Module):
         output = self.resid_dropout(output)
         return output
 
-
 class FeedForward(nn.Module):
     def __init__(self, dim: int, hidden_dim: int, multiple_of: int, dropout: float):
         super().__init__()
@@ -171,7 +168,6 @@ class FeedForward(nn.Module):
         y5 = self.w2(y4) # final linear
         out = self.dropout(y5)
         return out
-
 
 class TransformerBlock(nn.Module):
     def __init__(self, layer_id: int, args: ModelArgs):
@@ -200,6 +196,27 @@ class TransformerBlock(nn.Module):
         return out
 
 
+class MatrixEmbedding(nn.Module):
+    def __init__(self, vocab_size: int, dimx: int, dimy: int):
+        super().__init__()
+        self.vocab_size = vocab_size
+        self.dimx = dimx
+        self.dimy = dimy
+        self.weight = nn.Parameter(torch.empty(vocab_size, dimx, dimy))
+        self.reset_parameters()
+
+    def reset_parameters(self) -> None:
+        torch.nn.init.normal_(self.weight)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        _bsz, seqlen = x.shape
+        weights = []
+        for i in range(_bsz):
+            wei = self.weight.index_select(0, x[i])
+            weights.append(wei.reshape(seqlen, -1))
+        return torch.stack(weights, dim=0)
+
+
 class Transformer(nn.Module):
     last_loss: Optional[torch.Tensor]
 
@@ -209,7 +226,9 @@ class Transformer(nn.Module):
         self.vocab_size = params.vocab_size
         self.n_layers = params.n_layers
 
-        self.tok_embeddings = nn.Embedding(params.vocab_size, params.dim)
+        self.tok_embeddings = MatrixEmbedding(params.vocab_size, 16, 16)
+        assert params.dim == 256, "dim should be 256 for matrix based embeddings."
+        # self.tok_embeddings = nn.Embedding(params.vocab_size, params.dim)
         self.dropout = nn.Dropout(params.dropout)
         self.layers = torch.nn.ModuleList()
         for layer_id in range(params.n_layers):

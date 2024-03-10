@@ -7,7 +7,7 @@ python train.py \
     --gradient_accumulation_steps=1 \
     --vocab_source="custom" \
     --vocab_size=1024 \
-    --dim=64 \
+    --dim=256 \
     --n_layers=4 \
     --n_heads=4 \
     --n_kv_heads=2 \
