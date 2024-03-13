@@ -202,7 +202,7 @@ class MatrixEmbedding(nn.Module):
         self.vocab_size = vocab_size
         self.dimx = dimx
         self.dimy = dimy
-        self.weight = nn.Parameter(torch.empty(vocab_size, dimx, dimy))
+        self.weight = nn.Parameter(torch.empty((vocab_size, dimx, dimy), dtype=torch.float32))
         self.reset_parameters()
 
     def reset_parameters(self) -> None:
@@ -214,7 +214,8 @@ class MatrixEmbedding(nn.Module):
         for i in range(_bsz):
             wei = self.weight.index_select(0, x[i])
             weights.append(wei.reshape(seqlen, -1))
-        return torch.stack(weights, dim=0)
+        out = torch.stack(weights, dim=0)
+        return out
 
 
 class Transformer(nn.Module):
@@ -237,7 +238,7 @@ class Transformer(nn.Module):
         self.output = nn.Linear(params.dim, params.vocab_size, bias=False)
 
         # share the unembedding parameters with the embedding parameters
-        self.tok_embeddings.weight = self.output.weight # https://paperswithcode.com/method/weight-tying
+        # self.tok_embeddings.weight = self.output.weight # https://paperswithcode.com/method/weight-tying
 
         # some useful precompute for the RoPE relative positional embeddings
         freqs_cos, freqs_sin = precompute_freqs_cis(self.params.dim // self.params.n_heads, self.params.max_seq_len)
