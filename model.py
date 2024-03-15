@@ -1,3 +1,4 @@
+import sys
 import math
 import inspect
 from dataclasses import dataclass
@@ -233,7 +234,7 @@ class MatrixAttention(nn.Module):
         self.wq = MatrixLinear(args.dim, args.n_heads, bias=False)
         self.wk = MatrixLinear(args.dim, args.n_kv_heads, bias=False)
         self.wv = MatrixLinear(args.dim, args.n_kv_heads, bias=False)
-        self.wo = nn.Linear(args.n_heads * self.head_dim, args.dim, bias=False)
+        self.wo = MatrixLinear(args.dim, 1, bias=False)
         self.attn_dropout = nn.Dropout(args.dropout)
         self.resid_dropout = nn.Dropout(args.dropout)
         self.dropout = args.dropout
@@ -289,12 +290,17 @@ class MatrixAttention(nn.Module):
 
         # restore time as batch dimension and concat heads
         output = output.transpose(1, 2).contiguous()
-        print(x.shape, output.shape)
-        exit(0)
 
         # final projection into the residual stream
+        output = output.sum(dim=2)
         output = self.wo(output)
+        output = output.squeeze(2)
+
         output = self.resid_dropout(output)
+
+        print("!!!!! Feedforward with matrix embedding has noot been implemented yet !!!!!!")
+        exit(0)
+
         return output
 
 class FeedForward(nn.Module):
@@ -335,7 +341,7 @@ class TransformerBlock(nn.Module):
         self.layer_id = layer_id
         norm = MatrixRMSNorm if args.matrix else RMSNorm
         self.attention_norm = norm(args.dim, eps=args.norm_eps)
-        self.ffn_norm = RMSNorm(args.dim, eps=args.norm_eps)
+        self.ffn_norm = norm(args.dim, eps=args.norm_eps)
 
     def forward(self, x, freqs_cos, freqs_sin):
         y1 = self.attention_norm(x) # first RMSnorm
@@ -492,16 +498,5 @@ class Transformer(nn.Module):
 
 
 if __name__ == "__main__":
-    # linear = MatrixLinear(16, 2, False)
-    q = torch.randn(3, 2, 32, 16, 16, device="cpu", dtype=torch.float16)
-    k = torch.randn(3, 2, 32, 16, 16, device="cpu", dtype=torch.float16)
-    # out2 = torch.empty(32,32,16,16, device="mps", dtype=torch.float16)
-    # for i in range(32):
-    #     for j in range(32):
-    #         out2[i,j,:,:] = torch.matmul(q[i], k[j])
-    q = q[:,:,:,None,:,:].expand(3,2,32, 32, 16, 16)
-    k = k[:,:,None,:,:,:].expand(3,2,32, 32, 16, 16)
-    print("Going for attention using matmul")
-    out = torch.matmul(q, k).to(torch.float32).cpu()
-    out = torch.linalg.det(out)
-    print(out.shape)
+    x = torch.randn(3,4,2,16,16)
+    print(x)
