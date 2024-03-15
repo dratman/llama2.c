@@ -189,6 +189,7 @@ class FeedForward(nn.Module):
            y5 = self.w2(y4) # final linear
            out = self.dropout(y5)
            return out
+# END Class FeedForward
 
 # This is the subunit: a single transformer layer.
 class TransformerBlock(nn.Module):
@@ -212,6 +213,7 @@ class TransformerBlock(nn.Module):
         h = x + self.attention.forward(self.attention_norm(x), freqs_cos, freqs_sin)
         out = h + self.feed_forward.forward(self.ffn_norm(h))
         return out
+# END Class TransformerBlock
 
 # This stacks up multiple TransformerBlocks.
 class Transformer(nn.Module):
@@ -352,3 +354,4 @@ class Transformer(nn.Module):
             idx = torch.cat((idx, idx_next), dim=1)
 
         return idx
+# END Class Transformer
