@@ -176,10 +176,21 @@ class FeedForward(nn.Module):
         self.w3 = nn.Linear(dim, hidden_dim, bias=False)
         self.dropout = nn.Dropout(dropout)
 
-    def forward(self, x):
-        return self.dropout(self.w2(F.silu(self.w1(x)) * self.w3(x)))
+#     Karpathy's version of this forward():
+#     def forward(self, x):
+#         return self.dropout(self.w2(F.silu(self.w1(x)) * self.w3(x)))
 
+#     Ussama Zahid's version, which he de-constructed for clarity:
+      def forward(self, x):
+           y1 = self.w1(x)  # first linear on input
+           y2 = self.w3(x)  # second linear on input
+           y3 = F.silu(y1)  # non linear function
+           y4 = y3*y2       # pointwise mult
+           y5 = self.w2(y4) # final linear
+           out = self.dropout(y5)
+           return out
 
+# This is the subunit: a single transformer layer.
 class TransformerBlock(nn.Module):
     def __init__(self, layer_id: int, args: ModelArgs):
         super().__init__()
@@ -202,7 +213,7 @@ class TransformerBlock(nn.Module):
         out = h + self.feed_forward.forward(self.ffn_norm(h))
         return out
 
-
+# This stacks up multiple TransformerBlocks.
 class Transformer(nn.Module):
     last_loss: Optional[torch.Tensor]
 
