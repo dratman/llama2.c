@@ -28,15 +28,15 @@ from model import Transformer, ModelArgs
 
 from tinystories import Task
 
-if torch.backends.mps.is_available():
-    device = torch.device("mps")
-    device_type = "mps"
-elif torch.cuda.is_available():
-    device = torch.device("cuda")
-    device_type = "cuda"
-else:
-    device = torch.device("cpu")
-    device_type = "cpu"
+# if torch.backends.mps.is_available():
+#     device = torch.device("mps")
+#     device_type = "mps"
+# elif torch.cuda.is_available():
+#     device = torch.device("cuda")
+#     device_type = "cuda"
+# else:
+device = torch.device("cpu")
+device_type = "cpu"
 
 print("Using device:", device)
 
@@ -62,7 +62,7 @@ n_heads = 6
 n_kv_heads = 6
 multiple_of = 32
 dropout = 0.0
-
+matrix=False
 # adamw optimizer
 gradient_accumulation_steps = 4  # used to simulate larger batch sizes
 learning_rate = 5e-4  # max learning rate
@@ -141,6 +141,7 @@ model_args = dict(
     multiple_of=multiple_of,
     max_seq_len=max_seq_len,
     dropout=dropout,
+    matrix=matrix
 )  # start with model_args from command line
 # init a new model from scratch
 print("Initializing a new model from scratch")

@@ -1,13 +1,12 @@
 import math
-import struct
 import inspect
 from dataclasses import dataclass
 from typing import Any, Optional, Tuple
 
-import numpy as np
 import torch
-import torch.nn.functional as F
 from torch import nn
+import torch.nn.functional as F
+
 
 @dataclass
 class ModelArgs:
@@ -21,7 +20,28 @@ class ModelArgs:
     multiple_of: int = 256  # MLP hidden layer size will be multiple of
     norm_eps: float = 1e-5
     max_seq_len: int = 2048
-    dropout: float = 0.0
+    dropout: float = 0.0,
+    matrix: bool = False
+
+class MatrixEmbedding(nn.Module):
+    def __init__(self, vocab_size: int, dim: int):
+        super().__init__()
+        self.vocab_size = vocab_size
+        self.dimx = dim
+        self.weight = nn.Parameter(torch.empty((vocab_size, dim, dim), dtype=torch.float32))
+        self.reset_parameters()
+
+    def reset_parameters(self) -> None:
+        torch.nn.init.normal_(self.weight)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        _bsz, seqlen = x.shape
+        weights = []
+        for i in range(_bsz):
+            wei = self.weight.index_select(0, x[i])
+            weights.append(wei)
+        out = torch.stack(weights, dim=0)
+        return out 
 
 class RMSNorm(torch.nn.Module):
     def __init__(self, dim: int, eps: float):
@@ -35,6 +55,57 @@ class RMSNorm(torch.nn.Module):
     def forward(self, x):
         output = self._norm(x.float()).type_as(x)
         return output * self.weight
+
+class MatrixRMSNorm(torch.nn.Module):
+    def __init__(self, dim: int, eps: float):
+        super().__init__()
+        self.eps = eps
+        self.weight = nn.Parameter(torch.ones(dim, dim))
+
+    def _norm(self, x):
+        return x * torch.rsqrt(x.pow(2).mean((-1, -2), keepdim=True) + self.eps)
+
+    def forward(self, x):
+        assert x.shape[-1] == x.shape[-2], "MatrixRMSNorm requires a square matrix."
+        output = self._norm(x.float()).type_as(x)
+        outrms = output * self.weight
+        return outrms
+
+class MatrixLinear(nn.Module):
+    def __init__(self, indim: int, num_heads:int,  bias: bool = True):
+        super().__init__()
+        self.indim = indim
+        self.num_heads = num_heads
+        self.bias = None
+
+        for i in range(num_heads):
+            setattr(self, f'weight_{i}', nn.Parameter(torch.empty((indim, indim), dtype=torch.float32)))
+            if bias:
+                setattr(self, f'bias_{i}', nn.Parameter(torch.empty((indim, indim), dtype=torch.float32)))
+
+        self.reset_parameters()
+    
+    def reset_parameters(self) -> None:
+        for i in range(self.num_heads):
+            weight = getattr(self, f'weight_{i}')
+            torch.nn.init.normal_(weight)
+            if self.bias is not None:
+                bias = getattr(self, f'bias_{i}')
+                torch.nn.init.normal_(bias)
+    
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        _bsz, seqlen, _, _ = x.shape
+        out = torch.empty(
+            (_bsz, seqlen, self.num_heads, self.indim, self.indim), 
+            dtype=torch.float32, device=x.device
+        )
+        for i in range(self.num_heads):
+            weight = getattr(self, f'weight_{i}')
+            out[:,:,i,:,:] = torch.matmul(x, weight)
+            if self.bias is not None:
+                bias = getattr(self, f'bias_{i}')
+                out[:,:,i,:,:] += bias
+        return out  
 
 def precompute_freqs_cis(dim: int, end: int, theta: float = 10000.0):
     freqs = 1.0 / (theta ** (torch.arange(0, dim, 2)[: (dim // 2)].float() / dim))
@@ -148,6 +219,84 @@ class Attention(nn.Module):
         output = self.resid_dropout(output)
         return output
 
+
+class MatrixAttention(nn.Module):
+    def __init__(self, args: ModelArgs):
+        super().__init__()
+        self.n_kv_heads = args.n_heads if args.n_kv_heads is None else args.n_kv_heads
+        assert args.n_heads % self.n_kv_heads == 0
+        model_parallel_size = 1
+        self.n_local_heads = args.n_heads // model_parallel_size
+        self.n_local_kv_heads = self.n_kv_heads // model_parallel_size
+        self.n_rep = self.n_local_heads // self.n_local_kv_heads
+        self.head_dim = args.dim
+        self.wq = MatrixLinear(args.dim, args.n_heads, bias=False)
+        self.wk = MatrixLinear(args.dim, args.n_kv_heads, bias=False)
+        self.wv = MatrixLinear(args.dim, args.n_kv_heads, bias=False)
+        self.wo = nn.Linear(args.n_heads * self.head_dim, args.dim, bias=False)
+        self.attn_dropout = nn.Dropout(args.dropout)
+        self.resid_dropout = nn.Dropout(args.dropout)
+        self.dropout = args.dropout
+
+        mask = torch.full((1, 1, args.max_seq_len, args.max_seq_len), float("-inf"))
+        mask = torch.triu(mask, diagonal=1)
+        self.register_buffer("mask", mask)
+
+    def forward(
+        self,
+        x: torch.Tensor,
+        freqs_cos: torch.Tensor,
+        freqs_sin: torch.Tensor,
+    ):
+        bsz, seqlen, _, _ = x.shape
+
+        # QKV
+        xq, xk, xv = self.wq(x), self.wk(x), self.wv(x)
+        xq = xq.view(bsz, seqlen, self.n_local_heads, -1)
+        xk = xk.view(bsz, seqlen, self.n_local_kv_heads, -1)
+        xv = xv.view(bsz, seqlen, self.n_local_kv_heads, -1)
+
+        # RoPE relative positional embeddings
+        xq, xk = apply_rotary_emb(xq, xk, freqs_cos, freqs_sin)
+
+        # grouped multiquery attention: expand out keys and values
+        xk = repeat_kv(xk, self.n_rep)  # (bs, seqlen, n_local_heads, head_dim)
+        xv = repeat_kv(xv, self.n_rep)  # (bs, seqlen, n_local_heads, head_dim)
+
+        # make heads into a batch dimension
+        xq = xq.transpose(1, 2)  # (bs, n_local_heads, seqlen, head_dim)
+        xk = xk.transpose(1, 2)
+        xv = xv.transpose(1, 2)
+
+        xq = xq.reshape(xq.shape[:-1] + (self.head_dim, self.head_dim))
+        xk = xk.reshape(xk.shape[:-1] + (self.head_dim, self.head_dim))
+        xv = xv.reshape(xv.shape[:-1] + (self.head_dim, self.head_dim))
+
+        xq = xq[:,:,:,None,:,:].expand(bsz, self.n_local_heads, seqlen, seqlen, self.head_dim, self.head_dim)
+        xk = xk[:,:,None,:,:,:].expand(bsz, self.n_local_heads, seqlen, seqlen, self.head_dim, self.head_dim)
+        scores = torch.matmul(xq, xk) / math.sqrt(self.head_dim)
+
+        scores = scores.cpu().to(torch.float32)
+        scores = torch.linalg.det(scores) # (bs, n_local_heads, seqlen, seqlen)
+        scores = scores.to(x.device, x.dtype)
+        
+        scores = scores + self.mask[:, :, :seqlen, :seqlen]
+        scores = F.softmax(scores.float(), dim=-1).type_as(xq)
+        scores = self.attn_dropout(scores)
+        
+        output = torch.matmul(scores, xv.reshape(xv.shape[:-2] + (-1,)))  # (bs, n_local_heads, seqlen, head_dim)
+        output = output.reshape(output.shape[:-1] + (self.head_dim, self.head_dim))
+
+        # restore time as batch dimension and concat heads
+        output = output.transpose(1, 2).contiguous()
+        print(x.shape, output.shape)
+        exit(0)
+
+        # final projection into the residual stream
+        output = self.wo(output)
+        output = self.resid_dropout(output)
+        return output
+
 class FeedForward(nn.Module):
     def __init__(self, dim: int, hidden_dim: int, multiple_of: int, dropout: float):
         super().__init__()
@@ -175,7 +324,8 @@ class TransformerBlock(nn.Module):
         self.n_heads = args.n_heads
         self.dim = args.dim
         self.head_dim = args.dim // args.n_heads
-        self.attention = Attention(args)
+        attn = MatrixAttention if args.matrix else Attention
+        self.attention = attn(args)
         self.feed_forward = FeedForward(
             dim=args.dim,
             hidden_dim=args.hidden_dim,
@@ -183,7 +333,8 @@ class TransformerBlock(nn.Module):
             dropout=args.dropout,
         )
         self.layer_id = layer_id
-        self.attention_norm = RMSNorm(args.dim, eps=args.norm_eps)
+        norm = MatrixRMSNorm if args.matrix else RMSNorm
+        self.attention_norm = norm(args.dim, eps=args.norm_eps)
         self.ffn_norm = RMSNorm(args.dim, eps=args.norm_eps)
 
     def forward(self, x, freqs_cos, freqs_sin):
@@ -195,29 +346,6 @@ class TransformerBlock(nn.Module):
         out = h + y4 # 2nd skip connection
         return out
 
-
-class MatrixEmbedding(nn.Module):
-    def __init__(self, vocab_size: int, dimx: int, dimy: int):
-        super().__init__()
-        self.vocab_size = vocab_size
-        self.dimx = dimx
-        self.dimy = dimy
-        self.weight = nn.Parameter(torch.empty((vocab_size, dimx, dimy), dtype=torch.float32))
-        self.reset_parameters()
-
-    def reset_parameters(self) -> None:
-        torch.nn.init.normal_(self.weight)
-
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        _bsz, seqlen = x.shape
-        weights = []
-        for i in range(_bsz):
-            wei = self.weight.index_select(0, x[i])
-            weights.append(wei.reshape(seqlen, -1))
-        out = torch.stack(weights, dim=0)
-        return out
-
-
 class Transformer(nn.Module):
     last_loss: Optional[torch.Tensor]
 
@@ -226,10 +354,10 @@ class Transformer(nn.Module):
         self.params = params
         self.vocab_size = params.vocab_size
         self.n_layers = params.n_layers
-
-        self.tok_embeddings = MatrixEmbedding(params.vocab_size, 16, 16)
-        assert params.dim == 256, "dim should be 256 for matrix based embeddings."
-        # self.tok_embeddings = nn.Embedding(params.vocab_size, params.dim)
+        if params.matrix:
+            assert params.dim == 16, "Matrix model requires dim=16"
+        emb = MatrixEmbedding if params.matrix else nn.Embedding
+        self.tok_embeddings = emb(params.vocab_size, params.dim)
         self.dropout = nn.Dropout(params.dropout)
         self.layers = torch.nn.ModuleList()
         for layer_id in range(params.n_layers):
@@ -241,7 +369,10 @@ class Transformer(nn.Module):
         # self.tok_embeddings.weight = self.output.weight # https://paperswithcode.com/method/weight-tying
 
         # some useful precompute for the RoPE relative positional embeddings
-        freqs_cos, freqs_sin = precompute_freqs_cis(self.params.dim // self.params.n_heads, self.params.max_seq_len)
+        if params.matrix:
+            freqs_cos, freqs_sin = precompute_freqs_cis(self.params.dim**2, self.params.max_seq_len)
+        else:
+            freqs_cos, freqs_sin = precompute_freqs_cis(self.params.dim // self.params.n_heads, self.params.max_seq_len)
         self.register_buffer("freqs_cos", freqs_cos, persistent=False)
         self.register_buffer("freqs_sin", freqs_sin, persistent=False)
 
@@ -358,3 +489,19 @@ class Transformer(nn.Module):
             idx = torch.cat((idx, idx_next), dim=1)
 
         return idx
+
+
+if __name__ == "__main__":
+    # linear = MatrixLinear(16, 2, False)
+    q = torch.randn(3, 2, 32, 16, 16, device="cpu", dtype=torch.float16)
+    k = torch.randn(3, 2, 32, 16, 16, device="cpu", dtype=torch.float16)
+    # out2 = torch.empty(32,32,16,16, device="mps", dtype=torch.float16)
+    # for i in range(32):
+    #     for j in range(32):
+    #         out2[i,j,:,:] = torch.matmul(q[i], k[j])
+    q = q[:,:,:,None,:,:].expand(3,2,32, 32, 16, 16)
+    k = k[:,:,None,:,:,:].expand(3,2,32, 32, 16, 16)
+    print("Going for attention using matmul")
+    out = torch.matmul(q, k).to(torch.float32).cpu()
+    out = torch.linalg.det(out)
+    print(out.shape)
