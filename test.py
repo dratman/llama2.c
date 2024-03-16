@@ -1,10 +1,10 @@
 """
 Sample from the trained model with PyTorch
 """
-import os
-import pickle
 from contextlib import nullcontext
+
 import torch
+
 from model import ModelArgs, Transformer
 from tokenizer import Tokenizer
 

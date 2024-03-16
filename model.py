@@ -220,7 +220,6 @@ class Attention(nn.Module):
         output = self.resid_dropout(output)
         return output
 
-
 class MatrixAttention(nn.Module):
     def __init__(self, args: ModelArgs):
         super().__init__()
@@ -277,9 +276,9 @@ class MatrixAttention(nn.Module):
         xk = xk[:,:,None,:,:,:].expand(bsz, self.n_local_heads, seqlen, seqlen, self.head_dim, self.head_dim)
         scores = torch.matmul(xq, xk) / math.sqrt(self.head_dim)
 
-        scores = scores.cpu().to(torch.float32)
+        scores = scores.to(torch.float32)
         scores = torch.linalg.det(scores) # (bs, n_local_heads, seqlen, seqlen)
-        scores = scores.to(x.device, x.dtype)
+        scores = scores.to(x.dtype)
         
         scores = scores + self.mask[:, :, :seqlen, :seqlen]
         scores = F.softmax(scores.float(), dim=-1).type_as(xq)
@@ -297,10 +296,6 @@ class MatrixAttention(nn.Module):
         output = output.squeeze(2)
 
         output = self.resid_dropout(output)
-
-        print("!!!!! Feedforward with matrix embedding has noot been implemented yet !!!!!!")
-        exit(0)
-
         return output
 
 class FeedForward(nn.Module):
@@ -324,6 +319,25 @@ class FeedForward(nn.Module):
         out = self.dropout(y5)
         return out
 
+class MatrixFeedForward(nn.Module):
+    def __init__(self, dim: int, hidden_dim: int, multiple_of: int, dropout: float):
+        super().__init__()
+        self.w1 = MatrixLinear(dim, 4, bias=False)
+        self.w2 = MatrixLinear(dim, 1, bias=False)
+        self.w3 = MatrixLinear(dim, 1, bias=False)
+        self.dropout = nn.Dropout(dropout)
+
+    def forward(self, x):
+        print("!!! MatrixFeedForward not implemented yet !!!")
+        sys.exit()
+        y1 = self.w1(x)  # first linear on input
+        y2 = self.w3(x)  # second linear on input
+        y3 = F.silu(y1)  # non linear function
+        y4 = y3*y2       # pointwise mult
+        y5 = self.w2(y4) # final linear
+        out = self.dropout(y5)
+        return out
+
 class TransformerBlock(nn.Module):
     def __init__(self, layer_id: int, args: ModelArgs):
         super().__init__()
@@ -331,8 +345,9 @@ class TransformerBlock(nn.Module):
         self.dim = args.dim
         self.head_dim = args.dim // args.n_heads
         attn = MatrixAttention if args.matrix else Attention
+        ffn = MatrixFeedForward if args.matrix else FeedForward
         self.attention = attn(args)
-        self.feed_forward = FeedForward(
+        self.feed_forward = ffn(
             dim=args.dim,
             hidden_dim=args.hidden_dim,
             multiple_of=args.multiple_of,
@@ -495,8 +510,3 @@ class Transformer(nn.Module):
             idx = torch.cat((idx, idx_next), dim=1)
 
         return idx
-
-
-if __name__ == "__main__":
-    x = torch.randn(3,4,2,16,16)
-    print(x)

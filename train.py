@@ -28,15 +28,16 @@ from model import Transformer, ModelArgs
 
 from tinystories import Task
 
-# if torch.backends.mps.is_available():
-#     device = torch.device("mps")
-#     device_type = "mps"
-# elif torch.cuda.is_available():
-#     device = torch.device("cuda")
-#     device_type = "cuda"
-# else:
-device = torch.device("cpu")
-device_type = "cpu"
+
+if torch.cuda.is_available():
+    device = torch.device("cuda")
+    device_type = "cuda"
+elif torch.backends.mps.is_available():
+    device = torch.device("mps")
+    device_type = "mps"
+else:
+    device = torch.device("cpu")
+    device_type = "cpu"
 
 print("Using device:", device)
 
