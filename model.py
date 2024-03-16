@@ -260,15 +260,15 @@ class MatrixAttention(nn.Module):
         xq, xk = apply_rotary_emb(xq, xk, freqs_cos, freqs_sin)
 
         # grouped multiquery attention: expand out keys and values
-        xk = repeat_kv(xk, self.n_rep)  # (bs, seqlen, n_local_heads, head_dim)
-        xv = repeat_kv(xv, self.n_rep)  # (bs, seqlen, n_local_heads, head_dim)
+        xk = repeat_kv(xk, self.n_rep)  # (bsz, seqlen, n_local_heads, head_dim*head_dim)
+        xv = repeat_kv(xv, self.n_rep)
 
         # make heads into a batch dimension
-        xq = xq.transpose(1, 2)  # (bs, n_local_heads, seqlen, head_dim)
+        xq = xq.transpose(1, 2)  # (bsz, n_local_heads, seqlen, head_dim*head_dim)
         xk = xk.transpose(1, 2)
         xv = xv.transpose(1, 2)
 
-        xq = xq.reshape(xq.shape[:-1] + (self.head_dim, self.head_dim))
+        xq = xq.reshape(xq.shape[:-1] + (self.head_dim, self.head_dim)) # (bsz, n_local_heads, seqlen, head_dim, head_dim)
         xk = xk.reshape(xk.shape[:-1] + (self.head_dim, self.head_dim))
         xv = xv.reshape(xv.shape[:-1] + (self.head_dim, self.head_dim))
 
@@ -276,24 +276,26 @@ class MatrixAttention(nn.Module):
         xk = xk[:,:,None,:,:,:].expand(bsz, self.n_local_heads, seqlen, seqlen, self.head_dim, self.head_dim)
         scores = torch.matmul(xq, xk) / math.sqrt(self.head_dim)
 
+        if str(x.device).startswith("mps"):
+            scores = scores.cpu()
         scores = scores.to(torch.float32)
-        scores = torch.linalg.det(scores) # (bs, n_local_heads, seqlen, seqlen)
-        scores = scores.to(x.dtype)
-        
+        scores = torch.linalg.det(scores) # (bsz, n_local_heads, seqlen, seqlen)
+        scores = scores.to(x.device, x.dtype)
+
         scores = scores + self.mask[:, :, :seqlen, :seqlen]
         scores = F.softmax(scores.float(), dim=-1).type_as(xq)
         scores = self.attn_dropout(scores)
         
-        output = torch.matmul(scores, xv.reshape(xv.shape[:-2] + (-1,)))  # (bs, n_local_heads, seqlen, head_dim)
-        output = output.reshape(output.shape[:-1] + (self.head_dim, self.head_dim))
+        output = torch.matmul(scores, xv.reshape(xv.shape[:-2] + (-1,)))  # (bsz, n_local_heads, seqlen, head_dim*head_dim)
+        output = output.reshape(output.shape[:-1] + (self.head_dim, self.head_dim)) # (bsz, n_local_heads, seqlen, head_dim, head_dim)
 
         # restore time as batch dimension and concat heads
-        output = output.transpose(1, 2).contiguous()
+        output = output.transpose(1, 2).contiguous() # (bsz, seqlen, n_local_heads, head_dim, head_dim)
 
         # final projection into the residual stream
-        output = output.sum(dim=2)
-        output = self.wo(output)
-        output = output.squeeze(2)
+        output = output.sum(dim=2)   # (bsz, seqlen, head_dim, head_dim)
+        output = self.wo(output)     # (bsz, seqlen, 1, head_dim, head_dim)
+        output = output.squeeze(2)   # (bsz, seqlen, head_dim, head_dim)
 
         output = self.resid_dropout(output)
         return output
@@ -322,19 +324,22 @@ class FeedForward(nn.Module):
 class MatrixFeedForward(nn.Module):
     def __init__(self, dim: int, hidden_dim: int, multiple_of: int, dropout: float):
         super().__init__()
+        self.dim = dim
         self.w1 = MatrixLinear(dim, 4, bias=False)
         self.w2 = MatrixLinear(dim, 1, bias=False)
-        self.w3 = MatrixLinear(dim, 1, bias=False)
+        self.w3 = MatrixLinear(dim, 4, bias=False)
         self.dropout = nn.Dropout(dropout)
 
     def forward(self, x):
-        print("!!! MatrixFeedForward not implemented yet !!!")
+        print("!!! MatrixFeedForward has not been implemented yet !!!")
         sys.exit()
-        y1 = self.w1(x)  # first linear on input
-        y2 = self.w3(x)  # second linear on input
-        y3 = F.silu(y1)  # non linear function
-        y4 = y3*y2       # pointwise mult
-        y5 = self.w2(y4) # final linear
+        y1 = self.w1(x)      # first linear on input
+        y2 = self.w3(x)      # second linear on input
+        y3 = F.silu(y1)      # non linear function
+        y4 = y3*y2           # pointwise mult
+        # sum maybe?
+        y5 = self.w2(y4)     # final linear  # (bsz, seqlen, 1, head_dim, head_dim)
+        # sqeeze maybe?
         out = self.dropout(y5)
         return out
 
@@ -383,8 +388,12 @@ class Transformer(nn.Module):
         self.layers = torch.nn.ModuleList()
         for layer_id in range(params.n_layers):
             self.layers.append(TransformerBlock(layer_id, params))
-        self.norm = RMSNorm(params.dim, eps=params.norm_eps)
-        self.output = nn.Linear(params.dim, params.vocab_size, bias=False)
+        norm = MatrixRMSNorm if params.matrix else RMSNorm
+        self.norm = norm(params.dim, eps=params.norm_eps)
+        if params.matrix:
+            self.output = nn.Linear(params.dim**2, params.vocab_size, bias=False)
+        else:
+            self.output = nn.Linear(params.dim, params.vocab_size, bias=False)
 
         # share the unembedding parameters with the embedding parameters
         # self.tok_embeddings.weight = self.output.weight # https://paperswithcode.com/method/weight-tying
@@ -425,6 +434,7 @@ class Transformer(nn.Module):
         for layer in self.layers:
             h = layer(h, freqs_cos, freqs_sin)
         h = self.norm(h)
+        h = h.reshape(_bsz, seqlen, -1)
 
         if targets is not None:
             # if we are given some desired targets also calculate the loss
