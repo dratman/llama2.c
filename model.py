@@ -331,15 +331,13 @@ class MatrixFeedForward(nn.Module):
         self.dropout = nn.Dropout(dropout)
 
     def forward(self, x):
-        print("!!! MatrixFeedForward has not been implemented yet !!!")
-        sys.exit()
         y1 = self.w1(x)      # first linear on input
         y2 = self.w3(x)      # second linear on input
         y3 = F.silu(y1)      # non linear function
         y4 = y3*y2           # pointwise mult
-        # sum maybe?
+        y4 = y4.sum(dim=2)   # (bsz, seqlen, head_dim, head_dim)
         y5 = self.w2(y4)     # final linear  # (bsz, seqlen, 1, head_dim, head_dim)
-        # sqeeze maybe?
+        y5 = y5.squeeze(2)   # (bsz, seqlen, head_dim, head_dim)
         out = self.dropout(y5)
         return out
 

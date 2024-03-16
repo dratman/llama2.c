@@ -2,14 +2,14 @@
 
 python train.py \
     --out_dir="outmini" \
-    --batch_size=3 \
-    --max_seq_len=32 \
+    --batch_size=16 \
+    --max_seq_len=64 \
     --gradient_accumulation_steps=1 \
     --vocab_source="custom" \
     --vocab_size=1024 \
     --matrix=True \
     --dim=16 \
-    --n_layers=2 \
+    --n_layers=1 \
     --n_heads=2 \
     --n_kv_heads=1 \
     --multiple_of=4 \
@@ -21,5 +21,5 @@ python train.py \
     --warmup_iters=1000 \
     --eval_interval=2000 \
     --eval_iters=100 \
-    --log_interval=250 \
+    --log_interval=100 \
     --compile=True 
