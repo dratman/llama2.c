@@ -2,7 +2,7 @@
 
 python train.py \
     --out_dir="outmini" \
-    --batch_size=16 \
+    --batch_size=64 \
     --max_seq_len=64 \
     --gradient_accumulation_steps=1 \
     --vocab_source="custom" \

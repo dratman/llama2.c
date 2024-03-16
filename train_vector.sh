@@ -2,8 +2,8 @@
 
 python train.py \
     --out_dir="outmini" \
-    --batch_size=32 \
-    --max_seq_len=128 \
+    --batch_size=64 \
+    --max_seq_len=64 \
     --gradient_accumulation_steps=1 \
     --vocab_source="custom" \
     --vocab_size=1024 \
