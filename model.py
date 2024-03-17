@@ -162,6 +162,7 @@ def repeat_kv(x: torch.Tensor, n_rep: int) -> torch.Tensor:
     )
 
 class Attention(nn.Module):
+    
     def __init__(self, args: ModelArgs):
         super().__init__()
         self.n_kv_heads = args.n_heads if args.n_kv_heads is None else args.n_kv_heads
@@ -179,6 +180,10 @@ class Attention(nn.Module):
         self.resid_dropout = nn.Dropout(args.dropout)
         self.dropout = args.dropout
 
+        mask = torch.full((1, 1, args.max_seq_len, args.max_seq_len), float("-inf"))
+        mask = torch.triu(mask, diagonal=1)
+        self.register_buffer("mask", mask)
+        
     def forward(
         self,
         x: torch.Tensor,
@@ -212,6 +217,28 @@ class Attention(nn.Module):
             is_causal=True
         )
 
+        # # using matrix form
+        # xq = xq.reshape(xq.shape[:-1] + (16,16)) # (bsz, n_local_heads, seqlen, head_dim, head_dim)
+        # xk = xk.reshape(xk.shape[:-1] + (16,16))
+        # xq = xq[:,:, :,None, :,:].expand(bsz, self.n_local_heads, seqlen, seqlen, 16,16)
+        # xk = xk[:,:, None,:, :,:].expand(bsz, self.n_local_heads, seqlen, seqlen, 16,16)
+        # scores = torch.matmul(xq, xk) / math.sqrt(16)
+
+        # # using the determinant
+        # if str(x.device).startswith("mps"):
+        #     scores = scores.cpu()
+        # scores = scores.to(torch.float32)
+        # scores = torch.linalg.det(scores+ 1e-6) + 1e-6 # (bsz, n_local_heads, seqlen, seqlen)
+        # scores = scores.to(x.device, x.dtype)
+
+        # using sum
+        # scores = scores.mean(dim=(-1,-2))
+
+        # scores = scores + self.mask[:, :, :seqlen, :seqlen]   # (bs, n_local_heads, seqlen, cache_len + seqlen)
+        # scores = F.softmax(scores.float(), dim=-1).type_as(xq)
+        # scores = self.attn_dropout(scores)
+        # output = torch.matmul(scores, xv)  # (bs, n_local_heads, seqlen, head_dim)
+
         # restore time as batch dimension and concat heads
         output = output.transpose(1, 2).contiguous().view(bsz, seqlen, -1)
 
@@ -221,6 +248,7 @@ class Attention(nn.Module):
         return output
 
 class MatrixAttention(nn.Module):
+    
     def __init__(self, args: ModelArgs):
         super().__init__()
         self.n_kv_heads = args.n_heads if args.n_kv_heads is None else args.n_kv_heads
@@ -270,23 +298,26 @@ class MatrixAttention(nn.Module):
 
         xq = xq.reshape(xq.shape[:-1] + (self.head_dim, self.head_dim)) # (bsz, n_local_heads, seqlen, head_dim, head_dim)
         xk = xk.reshape(xk.shape[:-1] + (self.head_dim, self.head_dim))
-        xv = xv.reshape(xv.shape[:-1] + (self.head_dim, self.head_dim))
-
-        xq = xq[:,:,:,None,:,:].expand(bsz, self.n_local_heads, seqlen, seqlen, self.head_dim, self.head_dim)
-        xk = xk[:,:,None,:,:,:].expand(bsz, self.n_local_heads, seqlen, seqlen, self.head_dim, self.head_dim)
+        xq = xq[:,:, :,None, :,:].expand(bsz, self.n_local_heads, seqlen, seqlen, self.head_dim, self.head_dim)
+        xk = xk[:,:, None,:, :,:].expand(bsz, self.n_local_heads, seqlen, seqlen, self.head_dim, self.head_dim)
         scores = torch.matmul(xq, xk) / math.sqrt(self.head_dim)
 
+        # using the determinant
         if str(x.device).startswith("mps"):
             scores = scores.cpu()
         scores = scores.to(torch.float32)
-        scores = torch.linalg.det(scores) # (bsz, n_local_heads, seqlen, seqlen)
+        scores = torch.linalg.det(scores+ 1e-6) + 1e-6 # (bsz, n_local_heads, seqlen, seqlen)
         scores = scores.to(x.device, x.dtype)
+
+        # using sum
+        # scores = scores.mean(dim=(-1,-2))
 
         scores = scores + self.mask[:, :, :seqlen, :seqlen]
         scores = F.softmax(scores.float(), dim=-1).type_as(xq)
+        
         scores = self.attn_dropout(scores)
         
-        output = torch.matmul(scores, xv.reshape(xv.shape[:-2] + (-1,)))  # (bsz, n_local_heads, seqlen, head_dim*head_dim)
+        output = torch.matmul(scores, xv)  # (bsz, n_local_heads, seqlen, head_dim*head_dim)
         output = output.reshape(output.shape[:-1] + (self.head_dim, self.head_dim)) # (bsz, n_local_heads, seqlen, head_dim, head_dim)
 
         # restore time as batch dimension and concat heads
