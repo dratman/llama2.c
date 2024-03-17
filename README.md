@@ -23,3 +23,15 @@ python tinystories.py download
 python tinystories.py train_vocab --vocab_size=1024
 python tinystories.py pretokenize --vocab_size=1024
 ```
+
+## Training with the vector based token representation
+
+```sh
+./train_vector.sh
+```
+
+## Training with the matrix based token representation
+
+```sh
+./train_matrix.sh
+```
