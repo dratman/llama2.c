@@ -224,14 +224,14 @@ class Attention(nn.Module):
         # xk = xk[:,:, None,:, :,:].expand(bsz, self.n_local_heads, seqlen, seqlen, 16,16)
         # scores = torch.matmul(xq, xk) / math.sqrt(16)
 
-        # # using the determinant
+        # # using the determinant (loss plateaus from 7.0 at 2.0)
         # if str(x.device).startswith("mps"):
         #     scores = scores.cpu()
         # scores = scores.to(torch.float32)
         # scores = torch.linalg.det(scores+ 1e-6) + 1e-6 # (bsz, n_local_heads, seqlen, seqlen)
         # scores = scores.to(x.device, x.dtype)
 
-        # using sum
+        # using sum  (loss goes from 7.0 to 1.6)
         # scores = scores.mean(dim=(-1,-2))
 
         # scores = scores + self.mask[:, :, :seqlen, :seqlen]   # (bs, n_local_heads, seqlen, cache_len + seqlen)
@@ -302,14 +302,14 @@ class MatrixAttention(nn.Module):
         xk = xk[:,:, None,:, :,:].expand(bsz, self.n_local_heads, seqlen, seqlen, self.head_dim, self.head_dim)
         scores = torch.matmul(xq, xk) / math.sqrt(self.head_dim)
 
-        # using the determinant
+        # using the determinant (loss plateaus from 7.0 at 3.1)
         if str(x.device).startswith("mps"):
             scores = scores.cpu()
         scores = scores.to(torch.float32)
         scores = torch.linalg.det(scores+ 1e-6) + 1e-6 # (bsz, n_local_heads, seqlen, seqlen)
         scores = scores.to(x.device, x.dtype)
 
-        # using sum
+        # using sum (loss plateaus from 7.0 at 2.3)
         # scores = scores.mean(dim=(-1,-2))
 
         scores = scores + self.mask[:, :, :seqlen, :seqlen]
