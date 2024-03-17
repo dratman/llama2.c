@@ -1,7 +1,7 @@
 #!/bin/bash
 
 python train.py \
-    --out_dir="outmini" \
+    --out_dir="outmini_vector" \
     --batch_size=64 \
     --max_seq_len=64 \
     --gradient_accumulation_steps=1 \
@@ -16,7 +16,7 @@ python train.py \
     --learning_rate=1e-3 \
     --dropout=0.05 \
     --weight_decay=0.01 \
-    --max_iters=100000 \
+    --max_iters=20000 \
     --beta2=0.99 \
     --warmup_iters=1000 \
     --eval_interval=2000 \

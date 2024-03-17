@@ -44,7 +44,8 @@ for k,v in list(state_dict.items()):
     if k.startswith(unwanted_prefix):
         state_dict[k[len(unwanted_prefix):]] = state_dict.pop(k)
 model.load_state_dict(state_dict, strict=False)
-
+total_params = sum(p.numel() for p in model.parameters())
+print("Total params: {} M".format(total_params/1e6))
 model.eval()
 model.to(device)
 if compile:

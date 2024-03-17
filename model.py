@@ -293,7 +293,7 @@ class MatrixAttention(nn.Module):
         output = output.transpose(1, 2).contiguous() # (bsz, seqlen, n_local_heads, head_dim, head_dim)
 
         # final projection into the residual stream
-        output = output.sum(dim=2)   # (bsz, seqlen, head_dim, head_dim)
+        output = output.mean(dim=2)   # (bsz, seqlen, head_dim, head_dim)
         output = self.wo(output)     # (bsz, seqlen, 1, head_dim, head_dim)
         output = output.squeeze(2)   # (bsz, seqlen, head_dim, head_dim)
 
@@ -335,7 +335,7 @@ class MatrixFeedForward(nn.Module):
         y2 = self.w3(x)      # second linear on input
         y3 = F.silu(y1)      # non linear function
         y4 = y3*y2           # pointwise mult
-        y4 = y4.sum(dim=2)   # (bsz, seqlen, head_dim, head_dim)
+        y4 = y4.mean(dim=2)   # (bsz, seqlen, head_dim, head_dim)
         y5 = self.w2(y4)     # final linear  # (bsz, seqlen, 1, head_dim, head_dim)
         y5 = y5.squeeze(2)   # (bsz, seqlen, head_dim, head_dim)
         out = self.dropout(y5)
