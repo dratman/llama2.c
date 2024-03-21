@@ -9,7 +9,7 @@ python train.py \
     --vocab_size=1024 \
     --matrix=False \
     --dim=512 \
-    --n_layers=2 \
+    --n_layers=6 \
     --n_heads=2 \
     --n_kv_heads=2 \
     --multiple_of=4 \
@@ -22,4 +22,4 @@ python train.py \
     --eval_interval=2000 \
     --eval_iters=100 \
     --log_interval=250 \
-    --compile=True 
+    --compile=True

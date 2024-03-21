@@ -13,8 +13,8 @@ from tinystories import get_tokenizer_model_path
 # -----------------------------------------------------------------------------
 checkpoint = 'out/ckpt.pt'
 start = "" # or "<|endoftext|>" or etc. Can also specify a file, use as: "FILE:prompt.txt"
-num_samples = 5 # number of samples to draw
-max_new_tokens = 100 # number of tokens generated in each sample
+num_samples = 1 # number of samples to draw
+max_new_tokens = 256 # number of tokens generated in each sample
 temperature = 1.0 # 1.0 = no change, < 1.0 = less random, > 1.0 = more random, in predictions
 top_k = 300 # retain only the top_k most likely tokens, clamp others to have 0 probability
 tokenizer = "" # override the tokenizer model path
@@ -76,5 +76,20 @@ with torch.no_grad():
     with ctx:
         for k in range(num_samples):
             y = model.generate(x, max_new_tokens, temperature=temperature, top_k=top_k)
+#--- for testing only
+            # Assume y contains the generated token IDs as before
+            token_ids = y[0].tolist()  # Extract the generated token IDs for the first sample
+
+            # Decode each token ID individually and collect the decoded tokens
+            decoded_tokens = [enc.decode([token_id]) for token_id in token_ids]
+
+            # Join the decoded tokens with the separator character
+            #decoded_text_with_separators = "|".join(decoded_tokens)
+            decoded_text_with_separators = "_".join(decoded_tokens)
+            # Print the decoded text with separators
+            print("---------------------")
+            print(decoded_text_with_separators)
+            print("---------------------")
+#--- end for testing only
             print(enc.decode(y[0].tolist()))
             print('---------------')
