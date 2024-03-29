@@ -181,7 +181,7 @@ class FeedForward(nn.Module):
 #         return self.dropout(self.w2(F.silu(self.w1(x)) * self.w3(x)))
 
 #     Ussama Zahid's version, which he de-constructed for clarity:
-      def forward(self, x):
+    def forward(self, x):
            y1 = self.w1(x)  # first linear on input
            y2 = self.w3(x)  # second linear on input
            y3 = F.silu(y1)  # non linear function
