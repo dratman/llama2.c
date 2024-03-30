@@ -25,8 +25,10 @@ from functools import partial
 
 import torch
 from model import Transformer, ModelArgs
-
+from torch.distributed import destroy_process_group, init_process_group
+from torch.nn.parallel import DistributedDataParallel as DDP
 from tinystories import Task
+from export import model_export
 
 
 if torch.cuda.is_available():
@@ -226,6 +228,9 @@ while True:
                 }
                 print(f"saving checkpoint to {out_dir}")
                 torch.save(checkpoint, os.path.join(out_dir, "ckpt.pt"))
+                fprintf(stderr,"saved ckpt.pt at %s",os.path.join(out_dir, "ckpt.pt"))
+                model_export(raw_model, os.path.join(out_dir, "model.bin"), version=0)
+                fprintf(stderr,"saved model.bin at %s",os.path.join(out_dir, "model.bin"))
 
     # forward backward update, with optional gradient accumulation to simulate larger batch size
     # and using the GradScaler if data type is float16
