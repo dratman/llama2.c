@@ -1,6 +1,7 @@
 /* Inference for Llama-2 Transformer model in pure C */
-
 //#define _TRACE_ yes // This is RD's vector output stream.
+#define _COUNT_TOKENS_ yes
+#define _VOCAB_SIZE_ 1024
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -467,7 +468,14 @@ void free_tokenizer(Tokenizer* t) {
     free(t->sorted_vocab);
 }
 
+#if defined _COUNT_TOKENS_
+int token_counts[_VOCAB_SIZE_] = {0};
+#endif
+
 char* decode(Tokenizer* t, int prev_token, int token) {
+#if defined _COUNT_TOKENS_
+    token_counts[token]++;
+#endif
     char *piece = t->vocab[token];
     // following BOS (1) token, sentencepiece decoder strips any leading whitespace (see PR #89)
     if (prev_token == 1 && piece[0] == ' ') { piece++; }
@@ -850,6 +858,16 @@ void generate(Transformer *transformer, Tokenizer *tokenizer, Sampler *sampler, 
         fprintf(stderr, "achieved tok/s: %f\n", (position_in_sequence-1) / (double)(end-start)*1000);
     }
 
+#if defined _COUNT_TOKENS_
+     //fprintf(stderr,"I am ready to print counts.");
+     fprintf(stderr,"\nToken counts:");
+     for (int j=0; j<_VOCAB_SIZE_; j++) {
+        if (token_counts[j] > 0) {
+           fprintf(stderr, "\ntoken_counts[%d] = %d", j, token_counts[j]);
+        }
+     }
+#endif
+
     free(prompt_tokens);
 } // END generate()
 
@@ -974,7 +992,6 @@ void error_usage() {
 }
 
 int main(int argc, char *argv[]) {
-
     // default parameters
     char *checkpoint_path = NULL;  // e.g. out/model.bin
     char *tokenizer_path = "tokenizer.bin";
