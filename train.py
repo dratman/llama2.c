@@ -226,11 +226,14 @@ while True:
                     "best_val_loss": best_val_loss,
                     "config": config,
                 }
-                print(f"saving checkpoint to {out_dir}")
+
                 torch.save(checkpoint, os.path.join(out_dir, "ckpt.pt"))
-                fprintf(stderr,"saved ckpt.pt at %s",os.path.join(out_dir, "ckpt.pt"))
-                model_export(raw_model, os.path.join(out_dir, "model.bin"), version=0)
-                fprintf(stderr,"saved model.bin at %s",os.path.join(out_dir, "model.bin"))
+                print(f"saved checkpoint to {out_dir}/ckpt.pt")
+                ###fprintf(stderr,"saved ckpt.pt at %s",os.path.join(out_dir, "ckpt.pt"))
+
+                model_export(model, os.path.join(out_dir, "model.bin"), version=0)
+                print(f"saved checkpoint(?) to {out_dir}/model.bin")
+                ###fprintf(stderr,"saved model.bin at %s",os.path.join(out_dir, "model.bin"))
 
     # forward backward update, with optional gradient accumulation to simulate larger batch size
     # and using the GradScaler if data type is float16
