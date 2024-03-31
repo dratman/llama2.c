@@ -42,7 +42,7 @@ class MatrixEmbedding(nn.Module):
             wei = self.weight.index_select(0, x[i])
             weights.append(wei)
         out = torch.stack(weights, dim=0)
-        return out 
+        return out
 
 class RMSNorm(torch.nn.Module):
     def __init__(self, dim: int, eps: float):
@@ -85,7 +85,7 @@ class MatrixLinear(nn.Module):
                 setattr(self, f'bias_{i}', nn.Parameter(torch.empty((indim, indim), dtype=torch.float32)))
 
         self.reset_parameters()
-    
+
     def reset_parameters(self) -> None:
         for i in range(self.num_heads):
             weight = getattr(self, f'weight_{i}')
@@ -93,11 +93,11 @@ class MatrixLinear(nn.Module):
             if self.bias is not None:
                 bias = getattr(self, f'bias_{i}')
                 torch.nn.init.normal_(bias)
-    
+
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         _bsz, seqlen, _, _ = x.shape
         out = torch.empty(
-            (_bsz, seqlen, self.num_heads, self.indim, self.indim), 
+            (_bsz, seqlen, self.num_heads, self.indim, self.indim),
             dtype=torch.float32, device=x.device
         )
         for i in range(self.num_heads):
@@ -106,7 +106,7 @@ class MatrixLinear(nn.Module):
             if self.bias is not None:
                 bias = getattr(self, f'bias_{i}')
                 out[:,:,i,:,:] += bias
-        return out  
+        return out
 
 def precompute_freqs_cis(dim: int, end: int, theta: float = 10000.0):
     freqs = 1.0 / (theta ** (torch.arange(0, dim, 2)[: (dim // 2)].float() / dim))
@@ -162,7 +162,7 @@ def repeat_kv(x: torch.Tensor, n_rep: int) -> torch.Tensor:
     )
 
 class Attention(nn.Module):
-    
+
     def __init__(self, args: ModelArgs):
         super().__init__()
         self.n_kv_heads = args.n_heads if args.n_kv_heads is None else args.n_kv_heads
@@ -183,7 +183,7 @@ class Attention(nn.Module):
         mask = torch.full((1, 1, args.max_seq_len, args.max_seq_len), float("-inf"))
         mask = torch.triu(mask, diagonal=1)
         self.register_buffer("mask", mask)
-        
+
     def forward(
         self,
         x: torch.Tensor,
@@ -212,8 +212,8 @@ class Attention(nn.Module):
 
         # flash-attn implementation
         output = torch.nn.functional.scaled_dot_product_attention(
-            xq, xk, xv, attn_mask=None, 
-            dropout_p = self.dropout if self.training else 0.0, 
+            xq, xk, xv, attn_mask=None,
+            dropout_p = self.dropout if self.training else 0.0,
             is_causal=True
         )
 
@@ -248,7 +248,7 @@ class Attention(nn.Module):
         return output
 
 class MatrixAttention(nn.Module):
-    
+
     def __init__(self, args: ModelArgs):
         super().__init__()
         self.n_kv_heads = args.n_heads if args.n_kv_heads is None else args.n_kv_heads
@@ -314,9 +314,9 @@ class MatrixAttention(nn.Module):
 
         scores = scores + self.mask[:, :, :seqlen, :seqlen]
         scores = F.softmax(scores.float(), dim=-1).type_as(xq)
-        
+
         scores = self.attn_dropout(scores)
-        
+
         output = torch.matmul(scores, xv)  # (bsz, n_local_heads, seqlen, head_dim*head_dim)
         output = output.reshape(output.shape[:-1] + (self.head_dim, self.head_dim)) # (bsz, n_local_heads, seqlen, head_dim, head_dim)
 
@@ -445,6 +445,33 @@ class Transformer(nn.Module):
         # Initialize attribute for the loss of the last forward call. This will be set if the forward is called with a targets tensor.
         self.last_loss = None
 
+
+# ----- CODE FROM CHATGPT ------------------------------------
+def _init_weights(self, module):
+    if isinstance(module, nn.Linear):
+        torch.nn.init.normal_(module.weight, mean=0.0, std=0.02)
+        if module.bias is not None:
+            torch.nn.init.zeros_(module.bias)
+    elif isinstance(module, nn.Embedding):
+        # Create a one-hot matrix with a small amount of random noise
+        noise = torch.randn(module.weight.shape) * 0.005  # Small random noise
+        one_hot = torch.eye(module.num_embeddings, module.embedding_dim)  # One-hot matrix
+        # Ensure one_hot fits the shape of the embedding weight
+        one_hot = one_hot[:module.num_embeddings, :module.embedding_dim]
+        # If embedding_dim is smaller than num_embeddings, we can't have a strict one-hot encoding
+        if module.embedding_dim < module.num_embeddings:
+            # Here we truncate the one-hot matrix or pad it with zeros as necessary
+            # This step is crucial to handle the case where the embedding dimension
+            # is less than the number of embeddings (vocabulary size)
+            one_hot = one_hot[:, :module.embedding_dim]
+        else:
+            # Pad the one-hot matrix with zeros if embedding_dim is larger
+            padding = torch.zeros(module.num_embeddings, module.embedding_dim - module.num_embeddings)
+            one_hot = torch.cat((one_hot, padding), dim=1)
+        module.weight.data = one_hot + noise  # Initialize with one-hot + noise
+# ----- END CODE FROM CHATGPT --------------------------------
+
+
     def _init_weights(self, module):
         if isinstance(module, nn.Linear):
             torch.nn.init.normal_(module.weight, mean=0.0, std=0.02)
@@ -452,6 +479,7 @@ class Transformer(nn.Module):
                 torch.nn.init.zeros_(module.bias)
         elif isinstance(module, nn.Embedding):
             torch.nn.init.normal_(module.weight, mean=0.0, std=0.02)
+            # For one-hot embedding initialization, add a large pulse at the one-hot position
 
     def forward(self, tokens: torch.Tensor, targets: Optional[torch.Tensor] = None) -> torch.Tensor:
         _bsz, seqlen = tokens.shape
