@@ -1,7 +1,7 @@
 #!/bin/bash
 
-#python tinystories.py train_vocab --vocab_size=512
-#python tinystories.py pretokenize --vocab_size=512
+python tinystories.py train_vocab --vocab_size=512
+python tinystories.py pretokenize --vocab_size=512
 
 python train.py \
     --out_dir="outmini_vector" \
