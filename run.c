@@ -859,7 +859,6 @@ void generate(Transformer *transformer, Tokenizer *tokenizer, Sampler *sampler, 
     }
 
 #if defined _COUNT_TOKENS_
-     //fprintf(stderr,"I am ready to print counts.");
      fprintf(stderr,"\nToken counts:");
      for (int j=0; j<_VOCAB_SIZE_; j++) {
         if (token_counts[j] > 0) {
