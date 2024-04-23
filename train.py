@@ -48,21 +48,21 @@ wandb_run_name = "run" + datetime.now().strftime("%Y_%m_%d_%H_%M_%S")
 batch_size = 128  # if gradient_accumulation_steps > 1, this is the micro-batch size
 max_seq_len = 256
 vocab_source = "llama2" # llama2|custom; use Lllama 2 vocab from Meta, or custom trained
-vocab_size = 32000 # the Llama 2 tokenizer has 32K tokens
+vocab_size = 4096 # the Llama 2 tokenizer has 32K tokens
 # model
-dim = 288
-n_layers = 6
-n_heads = 6
-n_kv_heads = 6
-multiple_of = 32
-dropout = 0.0
+dim = 32
+n_layers = 5
+n_heads = 8
+n_kv_heads = 4
+multiple_of = 4
+dropout = 0.5
 # adamw optimizer
-gradient_accumulation_steps = 4  # used to simulate larger batch sizes
+gradient_accumulation_steps = 1  # used to simulate larger batch sizes
 learning_rate = 5e-4  # max learning rate
 max_iters = 100000  # total number of training iterations
-weight_decay = 1e-1
+weight_decay = .01
 beta1 = 0.9
-beta2 = 0.95
+beta2 = 0.99
 grad_clip = 1.0  # clip gradients at this value, or disable if == 0.0
 # learning rate decay settings
 decay_lr = True  # whether to decay the learning rate

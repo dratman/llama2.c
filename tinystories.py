@@ -78,26 +78,26 @@ def train_vocab(vocab_size):
 
     # output file prefix path for sentencepiece
     prefix = os.path.join(DATA_CACHE_DIR, f"tok{vocab_size}")
-
-    # how many shards we'll use for vocab training, kept low for efficiency
-    #num_shards = 10
-    num_shards = 50
-
-    # 1) export a large chunk of text as a single text file tiny.txt
-    tiny_file = os.path.join(DATA_CACHE_DIR, "tiny.txt")
-    data_dir = os.path.join(DATA_CACHE_DIR, "MarkTwain_all_data")
-    shard_filenames = sorted(glob.glob(os.path.join(data_dir, "*.json")))
-
-    print(f"Writing temporary file {tiny_file} with {num_shards} shards...")
-    with open(tiny_file, "w", encoding="utf-8") as of:
-        for shard in tqdm(shard_filenames[:num_shards]):
-            with open(shard, "r") as f:
-                data = json.load(f)
-            for example in data:
-                text = example["story"]
-                text = text.strip()
-                of.write(text + "\n")
-    print(f"Size is: {os.path.getsize(tiny_file) / 1024 / 1024:.2f} MB")
+#
+#     # how many shards we'll use for vocab training, kept low for efficiency
+#     #num_shards = 10
+#     num_shards = 50
+#
+#     # 1) export a large chunk of text as a single text file tiny.txt
+#     tiny_file = os.path.join(DATA_CACHE_DIR, "tiny.txt")
+#     data_dir = os.path.join(DATA_CACHE_DIR, "MarkTwain_all_data")
+#     shard_filenames = sorted(glob.glob(os.path.join(data_dir, "*.json")))
+#
+#     print(f"Writing temporary file {tiny_file} with {num_shards} shards...")
+#     with open(tiny_file, "w", encoding="utf-8") as f:
+#         for shard in tqdm(shard_filenames[:num_shards]):
+#             with open(shard, "r") as f:
+#                 data = json.load(f)
+#             for example in data:
+#                 text = example["story"]
+#                 text = text.strip()
+#                 of.write(text + "\n")
+#     print(f"Size is: {os.path.getsize(tiny_file) / 1024 / 1024:.2f} MB")
 
     # 2) train the sentencepiece model
     print("Will now train the vocab...")
@@ -204,6 +204,7 @@ class PretokDataset(torch.utils.data.IterableDataset):
         # train/test split. let's use only shard 0 for test split, rest train
         shard_filenames = shard_filenames[1:] if self.split == "train" else shard_filenames[:1]
         assert len(shard_filenames)>0, f"No bin files found in {bin_dir}"
+        print("bin_dir = ", bin_dir)
         while True:
             rng.shuffle(shard_filenames)
             for shard in shard_filenames:
