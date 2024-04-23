@@ -1,5 +1,5 @@
 """
-Download, preprocess and serve the TinyStories dataset as a DataLoader.
+Download, preprocess and serve the TinyStories or MarkTwain dataset as a DataLoader.
 """
 
 import argparse
@@ -38,27 +38,27 @@ def download_file(url: str, fname: str, chunk_size=1024):
             bar.update(size)
 
 
-def download():
-    """Downloads the TinyStories dataset to DATA_CACHE_DIR"""
+def not_really_download():
+    """Downloads the TinyStories or MarkTwain dataset to DATA_CACHE_DIR"""
     os.makedirs(DATA_CACHE_DIR, exist_ok=True)
 
-    # download the TinyStories dataset, unless it's already downloaded
-    data_url = "https://huggingface.co/datasets/roneneldan/TinyStories/resolve/main/TinyStories_all_data.tar.gz"
-    data_filename = os.path.join(DATA_CACHE_DIR, "TinyStories_all_data.tar.gz")
-    if not os.path.exists(data_filename):
-        print(f"Downloading {data_url} to {data_filename}...")
-        download_file(data_url, data_filename)
-    else:
-        print(f"{data_filename} already exists, skipping download...")
+    # download the TinyStories or MarkTwain dataset, unless it's already downloaded
+#     data_url = "https://huggingface.co/datasets/roneneldan/TinyStories/resolve/main/MarkTwain_all_data.tar.gz"
+#     data_filename = os.path.join(DATA_CACHE_DIR, "MarkTwain_all_data.tar.gz")
+#     if not os.path.exists(data_filename):
+#         print(f"Downloading {data_url} to {data_filename}...")
+#         download_file(data_url, data_filename)
+#     else:
+#         print(f"{data_filename} already exists, skipping download...")
 
     # unpack the tar.gz file into all the data shards (json files)
-    data_dir = os.path.join(DATA_CACHE_DIR, "TinyStories_all_data")
-    if not os.path.exists(data_dir):
-        os.makedirs(data_dir, exist_ok=True)
-        print(f"Unpacking {data_filename}...")
-        os.system(f"tar -xzf {data_filename} -C {data_dir}")
-    else:
-        print(f"{data_dir} already exists, skipping unpacking...")
+#     data_dir = os.path.join(DATA_CACHE_DIR, "MarkTwain_all_data")
+#     if not os.path.exists(data_dir):
+#         os.makedirs(data_dir, exist_ok=True)
+#         print(f"Unpacking {data_filename}...")
+#         os.system(f"tar -xzf {data_filename} -C {data_dir}")
+#     else:
+#         print(f"{data_dir} already exists, skipping unpacking...")
 
     # print a single example just for debugging and such
     shard_filenames = sorted(glob.glob(os.path.join(data_dir, "*.json")))
@@ -70,7 +70,7 @@ def download():
 
 def train_vocab(vocab_size):
     """
-    Trains a custom sentencepiece tokenizer on the TinyStories dataset.
+    Trains a custom sentencepiece tokenizer on the TinyStories or MarkTwain dataset.
     The custom tokenizer files will be saved in DATA_CACHE_DIR/tok{N} directories,
     where N is the vocab size. This is also where the pretok .bin files will go.
     """
@@ -80,11 +80,12 @@ def train_vocab(vocab_size):
     prefix = os.path.join(DATA_CACHE_DIR, f"tok{vocab_size}")
 
     # how many shards we'll use for vocab training, kept low for efficiency
-    num_shards = 10
+    #num_shards = 10
+    num_shards = 50
 
     # 1) export a large chunk of text as a single text file tiny.txt
     tiny_file = os.path.join(DATA_CACHE_DIR, "tiny.txt")
-    data_dir = os.path.join(DATA_CACHE_DIR, "TinyStories_all_data")
+    data_dir = os.path.join(DATA_CACHE_DIR, "MarkTwain_all_data")
     shard_filenames = sorted(glob.glob(os.path.join(data_dir, "*.json")))
 
     print(f"Writing temporary file {tiny_file} with {num_shards} shards...")
@@ -115,10 +116,10 @@ def train_vocab(vocab_size):
                                    normalization_rule_name="identity")
 
     # 3) optional cleanup, ask the user if they'd like to delete tiny.txt
-    dec = input(f"Delete the temporary file {tiny_file}? [y/N] ")
-    if dec.lower() == "y":
-        os.remove(tiny_file)
-        print(f"Deleted {tiny_file}")
+    # dec = input(f"Delete the temporary file {tiny_file}? [y/N] ")
+#     if dec.lower() == "y":
+#         os.remove(tiny_file)
+#         print(f"Deleted {tiny_file}")
 
     print(f"Trained tokenizer is in {prefix}.model")
     print("Done.")
@@ -158,7 +159,7 @@ def process_shard(args, vocab_size):
 
 def pretokenize(vocab_size):
     # iterate the shards and tokenize all of them one by one
-    data_dir = os.path.join(DATA_CACHE_DIR, "TinyStories_all_data")
+    data_dir = os.path.join(DATA_CACHE_DIR, "MarkTwain_all_data")
     shard_filenames = sorted(glob.glob(os.path.join(data_dir, "*.json")))
     if vocab_size > 0:
         # .bin files will be saved into tok{N} directory, create it once here
@@ -194,7 +195,7 @@ class PretokDataset(torch.utils.data.IterableDataset):
         print(f"Created a PretokDataset with rng seed {seed}")
         if self.vocab_source == "llama2":
             # the .bin files are right along the .json files
-            bin_dir = os.path.join(DATA_CACHE_DIR, "TinyStories_all_data")
+            bin_dir = os.path.join(DATA_CACHE_DIR, "MarkTwain_all_data")
             shard_filenames = sorted(glob.glob(os.path.join(bin_dir, "*.bin")))
         elif self.vocab_source == "custom":
             # the .bin files are in tok{N} directory
@@ -272,7 +273,7 @@ if __name__ == "__main__":
 
     # depending on the stage call the appropriate function
     if args.stage == "download":
-        download()
+        not_really_download()
     elif args.stage == "train_vocab":
         train_vocab(vocab_size=args.vocab_size)
     elif args.stage == "pretokenize":
