@@ -187,55 +187,48 @@ class Attention(nn.Module):
         self.wo = nn.Linear(args.n_heads * self.head_dim, args.dim, bias=False)
         self.attn_dropout = nn.Dropout(args.dropout)
         self.resid_dropout = nn.Dropout(args.dropout)
-        self.dropout = args.dropout
 
-        # Flash attention or a manual implementation
+        # Flash attention conditional setup
         self.flash = hasattr(torch.nn.functional, 'scaled_dot_product_attention')
         if not self.flash:
             print("WARNING: using slow attention. Flash Attention requires PyTorch >= 2.0")
-            mask = torch.full((1, 1, args.max_seq_len, args.max_seq_len), float("-inf"))
-            mask = torch.triu(mask, diagonal=1)
-            self.register_buffer("mask", mask)
+            self.mask = torch.triu(torch.full((1, 1, args.max_seq_len, args.max_seq_len), float("-inf")), diagonal=1)
 
     def forward(self, x, freqs_cos, freqs_sin, return_intermediate=False):
         bsz, seqlen, _ = x.shape
-
-        # QKV transformations
         xq, xk, xv = self.wq(x), self.wk(x), self.wv(x)
         xq = xq.view(bsz, seqlen, self.n_local_heads, self.head_dim)
         xk = xk.view(bsz, seqlen, self.n_local_kv_heads, self.head_dim)
         xv = xv.view(bsz, seqlen, self.n_local_kv_heads, self.head_dim)
 
-        # Apply rotary position embeddings (RoPE)
+        # Apply RoPE
         xq, xk = apply_rotary_emb(xq, xk, freqs_cos, freqs_sin)
 
-        # Grouped multiquery attention: expand keys and values
+        # Expand keys and values for multiquery attention
         xk = repeat_kv(xk, self.n_rep)
         xv = repeat_kv(xv, self.n_rep)
 
-        # Transpose for matrix multiplication
+        # Reorganize for batch processing
         xq = xq.transpose(1, 2)
         xk = xk.transpose(1, 2)
         xv = xv.transpose(1, 2)
 
-        # Attention mechanism
+        # Calculate attention or use flash if available
         if self.flash:
-            output, attn_scores = torch.nn.functional.scaled_dot_product_attention(xq, xk, xv, attn_mask=None, dropout_p=self.dropout if self.training else 0.0, is_causal=True, return_attention_scores=True)
+            output, attn_weights = torch.nn.functional.scaled_dot_product_attention(xq, xk, xv, attn_mask=None, dropout_p=self.attn_dropout if self.training else 0.0, is_causal=True)
         else:
-            scores = torch.matmul(xq, xk.transpose(2, 3)) * (1 / math.sqrt(self.head_dim))
-            scores = scores + self.mask[:, :, :seqlen, :seqlen]
-            scores = F.softmax(scores, dim=-1)
-            scores = self.attn_dropout(scores)
-            output = torch.matmul(scores, xv)
-            attn_scores = scores  # Only if needed for analysis
+            scores = torch.matmul(xq, xk.transpose(2, 3)) * (1.0 / math.sqrt(self.head_dim))
+            scores += self.mask[:, :, :seqlen, :seqlen]
+            attn_weights = F.softmax(scores, dim=-1)
+            attn_weights = self.attn_dropout(attn_weights)
+            output = torch.matmul(attn_weights, xv)
 
-        # Restore sequence order and combine heads
         output = output.transpose(1, 2).contiguous().view(bsz, seqlen, -1)
         output = self.wo(output)
         output = self.resid_dropout(output)
 
         if return_intermediate:
-            return output, attn_scores
+            return output, attn_weights  # Return output and attention weights
         return output
 # END NEW CLASS ATTENTION
 
@@ -256,62 +249,62 @@ class FeedForward(nn.Module):
 
 # ORIGINAL CLASS TRANSFORMERBLOCK
 # class TransformerBlock(nn.Module):
-#     def __init__(self, layer_id: int, args: ModelArgs):
-#         super().__init__()
-#         self.n_heads = args.n_heads
-#         self.dim = args.dim
-#         self.head_dim = args.dim // args.n_heads
-#         self.attention = Attention(args)
-#         self.feed_forward = FeedForward(
-#             dim=args.dim,
-#             hidden_dim=args.hidden_dim,
-#             multiple_of=args.multiple_of,
-#             dropout=args.dropout,
-#         )
-#         self.layer_id = layer_id
-#         self.attention_norm = RMSNorm(args.dim, eps=args.norm_eps)
-#         self.ffn_norm = RMSNorm(args.dim, eps=args.norm_eps)
-#
-#     def forward(self, x, freqs_cos, freqs_sin):
-#         h = x + self.attention.forward(self.attention_norm(x), freqs_cos, freqs_sin)
-#         out = h + self.feed_forward.forward(self.ffn_norm(h))
-#         return out
+    def __init__(self, layer_id: int, args: ModelArgs):
+        super().__init__()
+        self.n_heads = args.n_heads
+        self.dim = args.dim
+        self.head_dim = args.dim // args.n_heads
+        self.attention = Attention(args)
+        self.feed_forward = FeedForward(
+            dim=args.dim,
+            hidden_dim=args.hidden_dim,
+            multiple_of=args.multiple_of,
+            dropout=args.dropout,
+        )
+        self.layer_id = layer_id
+        self.attention_norm = RMSNorm(args.dim, eps=args.norm_eps)
+        self.ffn_norm = RMSNorm(args.dim, eps=args.norm_eps)
+
+    def forward(self, x, freqs_cos, freqs_sin):
+        h = x + self.attention.forward(self.attention_norm(x), freqs_cos, freqs_sin)
+        out = h + self.feed_forward.forward(self.ffn_norm(h))
+        return out
 # END ORIGINAL CLASS TRANSFORMERBLOCK
 
 # NEW CLASS TRANSFORMERBLOCK
-class TransformerBlock(nn.Module):
-    def __init__(self, args):
-        super().__init__()
-        self.args = args
-        # Assuming dim, n_heads, and possibly other params are in args
-        self.attention = Attention(args)
-        self.feed_forward = FeedForward(args)
-        self.norm1 = nn.LayerNorm(args.dim)
-        self.norm2 = nn.LayerNorm(args.dim)
-        self.dropout = nn.Dropout(args.dropout)
-
-    def forward(self, x, freqs_cos=None, freqs_sin=None, capture_intermediate_outputs=False):
-        # Apply normalization and attention
-        x_norm = self.norm1(x)
-        if freqs_cos is not None and freqs_sin is not None:
-            attention_out, attn_intermediate = self.attention(x_norm, freqs_cos, freqs_sin, return_intermediate=True)
-        else:
-            attention_out = self.attention(x_norm)
-            attn_intermediate = attention_out  # Optionally handle this differently based on your model
-
-        # Apply dropout and residual connection
-        x = x + self.dropout(attention_out)
-
-        # Apply normalization and feedforward network
-        x_norm = self.norm2(x)
-        ffn_out = self.feed_forward(x_norm)
-
-        # Another dropout and residual connection
-        x = x + self.dropout(ffn_out)
-
-        if capture_intermediate_outputs:
-            return x, attn_intermediate
-        return x
+# class TransformerBlock(nn.Module):
+#     def __init__(self, args):
+#         super().__init__()
+#         self.args = args
+#         # Assuming dim, n_heads, and possibly other params are in args
+#         self.attention = Attention(args)
+#         self.feed_forward = FeedForward(args)
+#         self.norm1 = nn.LayerNorm(args.dim)
+#         self.norm2 = nn.LayerNorm(args.dim)
+#         self.dropout = nn.Dropout(args.dropout)
+#
+#     def forward(self, x, freqs_cos=None, freqs_sin=None, capture_intermediate_outputs=False):
+#         # Apply normalization and attention
+#         x_norm = self.norm1(x)
+#         if freqs_cos is not None and freqs_sin is not None:
+#             attention_out, attn_intermediate = self.attention(x_norm, freqs_cos, freqs_sin, return_intermediate=True)
+#         else:
+#             attention_out = self.attention(x_norm)
+#             attn_intermediate = attention_out  # Optionally handle this differently based on your model
+#
+#         # Apply dropout and residual connection
+#         x = x + self.dropout(attention_out)
+#
+#         # Apply normalization and feedforward network
+#         x_norm = self.norm2(x)
+#         ffn_out = self.feed_forward(x_norm)
+#
+#         # Another dropout and residual connection
+#         x = x + self.dropout(ffn_out)
+#
+#         if capture_intermediate_outputs:
+#             return x, attn_intermediate
+#         return x
 # END NEW CLASS TRANSFORMERBLOCK
 
 class Transformer(nn.Module):
