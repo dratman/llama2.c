@@ -102,8 +102,7 @@ def train_vocab(vocab_size):
     print("Will now train the vocab...")
     spm.SentencePieceTrainer.train(input=tiny_file,
                                    model_prefix=prefix,
-                                   #model_type="bpe",  CHANGED
-                                   model_type="word",
+                                   model_type="bpe",
                                    vocab_size=vocab_size,
                                    self_test_sample_size=0,
                                    input_format="text",
@@ -115,11 +114,11 @@ def train_vocab(vocab_size):
                                    unk_surface=r" \342\201\207 ",
                                    normalization_rule_name="identity")
 
-#   # 3) optional cleanup, ask the user if they'd like to delete tiny.txt
-#   dec = input(f"Delete the temporary file {tiny_file}? [y/N] ")
-#   if dec.lower() == "y":
-#       os.remove(tiny_file)
-#       print(f"Deleted {tiny_file}")
+    # 3) optional cleanup, ask the user if they'd like to delete tiny.txt
+    dec = input(f"Delete the temporary file {tiny_file}? [y/N] ")
+    if dec.lower() == "y":
+        os.remove(tiny_file)
+        print(f"Deleted {tiny_file}")
 
     print(f"Trained tokenizer is in {prefix}.model")
     print("Done.")
@@ -263,8 +262,8 @@ if __name__ == "__main__":
 
     To tokenize data with a custom tokenizer we train ourselves with sentencepiece, e.g.:
     python tinystories.py download
-    python tinystories.py train_vocab --vocab_size=25000
-    python tinystories.py pretokenize --vocab_size=25000
+    python tinystories.py train_vocab --vocab_size=2048
+    python tinystories.py pretokenize --vocab_size=2048
     """
     parser = argparse.ArgumentParser()
     parser.add_argument("stage", type=str, choices=["download", "pretokenize", "train_vocab"])
