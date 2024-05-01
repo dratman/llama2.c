@@ -91,8 +91,88 @@ def repeat_kv(x: torch.Tensor, n_rep: int) -> torch.Tensor:
         .reshape(bs, slen, n_kv_heads * n_rep, head_dim)
     )
 
+# OLD CLASS ATTENTION
+# class Attention(nn.Module):
+#     def __init__(self, args: ModelArgs):
+#         super().__init__()
+#         self.n_kv_heads = args.n_heads if args.n_kv_heads is None else args.n_kv_heads
+#         assert args.n_heads % self.n_kv_heads == 0
+#         model_parallel_size = 1
+#         self.n_local_heads = args.n_heads // model_parallel_size
+#         self.n_local_kv_heads = self.n_kv_heads // model_parallel_size
+#         self.n_rep = self.n_local_heads // self.n_local_kv_heads
+#         self.head_dim = args.dim // args.n_heads
+#         self.wq = nn.Linear(args.dim, args.n_heads * self.head_dim, bias=False)
+#         self.wk = nn.Linear(args.dim, self.n_kv_heads * self.head_dim, bias=False)
+#         self.wv = nn.Linear(args.dim, self.n_kv_heads * self.head_dim, bias=False)
+#         self.wo = nn.Linear(args.n_heads * self.head_dim, args.dim, bias=False)
+#         self.attn_dropout = nn.Dropout(args.dropout)
+#         self.resid_dropout = nn.Dropout(args.dropout)
+#         self.dropout = args.dropout
+#
+#         # use flash attention or a manual implementation?
+#         self.flash = hasattr(torch.nn.functional, 'scaled_dot_product_attention')
+#         if not self.flash:
+#             print("WARNING: using slow attention. Flash Attention requires PyTorch >= 2.0")
+#             mask = torch.full((1, 1, args.max_seq_len, args.max_seq_len), float("-inf"))
+#             mask = torch.triu(mask, diagonal=1)
+#             self.register_buffer("mask", mask)
+#
+#     def forward(
+#         self,
+#         x: torch.Tensor,
+#         freqs_cos: torch.Tensor,
+#         freqs_sin: torch.Tensor,
+#     ):
+#         bsz, seqlen, _ = x.shape
+#
+#         # QKV
+#         xq, xk, xv = self.wq(x), self.wk(x), self.wv(x)
+#         xq = xq.view(bsz, seqlen, self.n_local_heads, self.head_dim)
+#         xk = xk.view(bsz, seqlen, self.n_local_kv_heads, self.head_dim)
+#         xv = xv.view(bsz, seqlen, self.n_local_kv_heads, self.head_dim)
+#
+#         # RoPE relative positional embeddings
+#         xq, xk = apply_rotary_emb(xq, xk, freqs_cos, freqs_sin)
+#
+#         # grouped multiquery attention: expand out keys and values
+#         xk = repeat_kv(xk, self.n_rep)  # (bs, seqlen, n_local_heads, head_dim)
+#         xv = repeat_kv(xv, self.n_rep)  # (bs, seqlen, n_local_heads, head_dim)
+#
+#         # make heads into a batch dimension
+#         xq = xq.transpose(1, 2)  # (bs, n_local_heads, seqlen, head_dim)
+#         xk = xk.transpose(1, 2)
+#         xv = xv.transpose(1, 2)
+#
+#         # flash implementation
+#         if self.flash:
+#             output = torch.nn.functional.scaled_dot_product_attention(xq, xk, xv, attn_mask=None, dropout_p=self.dropout if self.training else 0.0, is_causal=True)
+#         else:
+#             # manual implementation
+#             scores = torch.matmul(xq, xk.transpose(2, 3)) / math.sqrt(self.head_dim)
+#             assert hasattr(self, 'mask')
+#             scores = scores + self.mask[:, :, :seqlen, :seqlen]   # (bs, n_local_heads, seqlen, cache_len + seqlen)
+#             scores = F.softmax(scores.float(), dim=-1).type_as(xq)
+#             scores = self.attn_dropout(scores)
+#             output = torch.matmul(scores, xv)  # (bs, n_local_heads, seqlen, head_dim)
+#
+#         # restore time as batch dimension and concat heads
+#         output = output.transpose(1, 2).contiguous().view(bsz, seqlen, -1)
+#
+#         # final projection into the residual stream
+#         output = self.wo(output)
+#         output = self.resid_dropout(output)
+#         return output
+# END OLD CLASS ATTENTION
+
+# NEW CLASS ATTENTION
+import torch
+from torch import nn
+import torch.nn.functional as F
+import math
+
 class Attention(nn.Module):
-    def __init__(self, args: ModelArgs):
+    def __init__(self, args):
         super().__init__()
         self.n_kv_heads = args.n_heads if args.n_kv_heads is None else args.n_kv_heads
         assert args.n_heads % self.n_kv_heads == 0
@@ -109,7 +189,7 @@ class Attention(nn.Module):
         self.resid_dropout = nn.Dropout(args.dropout)
         self.dropout = args.dropout
 
-        # use flash attention or a manual implementation?
+        # Flash attention or a manual implementation
         self.flash = hasattr(torch.nn.functional, 'scaled_dot_product_attention')
         if not self.flash:
             print("WARNING: using slow attention. Flash Attention requires PyTorch >= 2.0")
@@ -117,52 +197,47 @@ class Attention(nn.Module):
             mask = torch.triu(mask, diagonal=1)
             self.register_buffer("mask", mask)
 
-    def forward(
-        self,
-        x: torch.Tensor,
-        freqs_cos: torch.Tensor,
-        freqs_sin: torch.Tensor,
-    ):
+    def forward(self, x, freqs_cos, freqs_sin, return_intermediate=False):
         bsz, seqlen, _ = x.shape
 
-        # QKV
+        # QKV transformations
         xq, xk, xv = self.wq(x), self.wk(x), self.wv(x)
         xq = xq.view(bsz, seqlen, self.n_local_heads, self.head_dim)
         xk = xk.view(bsz, seqlen, self.n_local_kv_heads, self.head_dim)
         xv = xv.view(bsz, seqlen, self.n_local_kv_heads, self.head_dim)
 
-        # RoPE relative positional embeddings
+        # Apply rotary position embeddings (RoPE)
         xq, xk = apply_rotary_emb(xq, xk, freqs_cos, freqs_sin)
 
-        # grouped multiquery attention: expand out keys and values
-        xk = repeat_kv(xk, self.n_rep)  # (bs, seqlen, n_local_heads, head_dim)
-        xv = repeat_kv(xv, self.n_rep)  # (bs, seqlen, n_local_heads, head_dim)
+        # Grouped multiquery attention: expand keys and values
+        xk = repeat_kv(xk, self.n_rep)
+        xv = repeat_kv(xv, self.n_rep)
 
-        # make heads into a batch dimension
-        xq = xq.transpose(1, 2)  # (bs, n_local_heads, seqlen, head_dim)
+        # Transpose for matrix multiplication
+        xq = xq.transpose(1, 2)
         xk = xk.transpose(1, 2)
         xv = xv.transpose(1, 2)
 
-        # flash implementation
+        # Attention mechanism
         if self.flash:
-            output = torch.nn.functional.scaled_dot_product_attention(xq, xk, xv, attn_mask=None, dropout_p=self.dropout if self.training else 0.0, is_causal=True)
+            output, attn_scores = torch.nn.functional.scaled_dot_product_attention(xq, xk, xv, attn_mask=None, dropout_p=self.dropout if self.training else 0.0, is_causal=True, return_attention_scores=True)
         else:
-            # manual implementation
-            scores = torch.matmul(xq, xk.transpose(2, 3)) / math.sqrt(self.head_dim)
-            assert hasattr(self, 'mask')
-            scores = scores + self.mask[:, :, :seqlen, :seqlen]   # (bs, n_local_heads, seqlen, cache_len + seqlen)
-            scores = F.softmax(scores.float(), dim=-1).type_as(xq)
+            scores = torch.matmul(xq, xk.transpose(2, 3)) * (1 / math.sqrt(self.head_dim))
+            scores = scores + self.mask[:, :, :seqlen, :seqlen]
+            scores = F.softmax(scores, dim=-1)
             scores = self.attn_dropout(scores)
-            output = torch.matmul(scores, xv)  # (bs, n_local_heads, seqlen, head_dim)
+            output = torch.matmul(scores, xv)
+            attn_scores = scores  # Only if needed for analysis
 
-        # restore time as batch dimension and concat heads
+        # Restore sequence order and combine heads
         output = output.transpose(1, 2).contiguous().view(bsz, seqlen, -1)
-
-        # final projection into the residual stream
         output = self.wo(output)
         output = self.resid_dropout(output)
-        return output
 
+        if return_intermediate:
+            return output, attn_scores
+        return output
+# END NEW CLASS ATTENTION
 
 class FeedForward(nn.Module):
     def __init__(self, dim: int, hidden_dim: int, multiple_of: int, dropout: float):
@@ -179,29 +254,65 @@ class FeedForward(nn.Module):
     def forward(self, x):
         return self.dropout(self.w2(F.silu(self.w1(x)) * self.w3(x)))
 
+# ORIGINAL CLASS TRANSFORMERBLOCK
+# class TransformerBlock(nn.Module):
+#     def __init__(self, layer_id: int, args: ModelArgs):
+#         super().__init__()
+#         self.n_heads = args.n_heads
+#         self.dim = args.dim
+#         self.head_dim = args.dim // args.n_heads
+#         self.attention = Attention(args)
+#         self.feed_forward = FeedForward(
+#             dim=args.dim,
+#             hidden_dim=args.hidden_dim,
+#             multiple_of=args.multiple_of,
+#             dropout=args.dropout,
+#         )
+#         self.layer_id = layer_id
+#         self.attention_norm = RMSNorm(args.dim, eps=args.norm_eps)
+#         self.ffn_norm = RMSNorm(args.dim, eps=args.norm_eps)
+#
+#     def forward(self, x, freqs_cos, freqs_sin):
+#         h = x + self.attention.forward(self.attention_norm(x), freqs_cos, freqs_sin)
+#         out = h + self.feed_forward.forward(self.ffn_norm(h))
+#         return out
+# END ORIGINAL CLASS TRANSFORMERBLOCK
 
+# NEW CLASS TRANSFORMERBLOCK
 class TransformerBlock(nn.Module):
-    def __init__(self, layer_id: int, args: ModelArgs):
+    def __init__(self, args):
         super().__init__()
-        self.n_heads = args.n_heads
-        self.dim = args.dim
-        self.head_dim = args.dim // args.n_heads
+        self.args = args
+        # Assuming dim, n_heads, and possibly other params are in args
         self.attention = Attention(args)
-        self.feed_forward = FeedForward(
-            dim=args.dim,
-            hidden_dim=args.hidden_dim,
-            multiple_of=args.multiple_of,
-            dropout=args.dropout,
-        )
-        self.layer_id = layer_id
-        self.attention_norm = RMSNorm(args.dim, eps=args.norm_eps)
-        self.ffn_norm = RMSNorm(args.dim, eps=args.norm_eps)
+        self.feed_forward = FeedForward(args)
+        self.norm1 = nn.LayerNorm(args.dim)
+        self.norm2 = nn.LayerNorm(args.dim)
+        self.dropout = nn.Dropout(args.dropout)
 
-    def forward(self, x, freqs_cos, freqs_sin):
-        h = x + self.attention.forward(self.attention_norm(x), freqs_cos, freqs_sin)
-        out = h + self.feed_forward.forward(self.ffn_norm(h))
-        return out
+    def forward(self, x, freqs_cos=None, freqs_sin=None, capture_intermediate_outputs=False):
+        # Apply normalization and attention
+        x_norm = self.norm1(x)
+        if freqs_cos is not None and freqs_sin is not None:
+            attention_out, attn_intermediate = self.attention(x_norm, freqs_cos, freqs_sin, return_intermediate=True)
+        else:
+            attention_out = self.attention(x_norm)
+            attn_intermediate = attention_out  # Optionally handle this differently based on your model
 
+        # Apply dropout and residual connection
+        x = x + self.dropout(attention_out)
+
+        # Apply normalization and feedforward network
+        x_norm = self.norm2(x)
+        ffn_out = self.feed_forward(x_norm)
+
+        # Another dropout and residual connection
+        x = x + self.dropout(ffn_out)
+
+        if capture_intermediate_outputs:
+            return x, attn_intermediate
+        return x
+# END NEW CLASS TRANSFORMERBLOCK
 
 class Transformer(nn.Module):
     last_loss: Optional[torch.Tensor]
