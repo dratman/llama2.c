@@ -215,8 +215,16 @@ void softmax(float* x, int size) {
 }
 
 void matmul(float* xout, float* x, float* w, int n, int d) {
+    // x is a vector of floats,    n rows x 1 column  (the input vector)
+    // xout is a vector of floats, d rows x 1 column  (the output vector)
+    // w is a matrix of floats,    d rows x n columns (the "weights")
+    // This calculates w . x --> xout, a matrix transformation of the input embedding.
+    // For a linear layer, this would be used as follows:
+    // x is the input from the prior layer,
+    // xout is the output to the next layer.
+    // w is the matrix of weights belonging to this layer.
+    // "By far the most amount of time is spent inside this little function." -Karpathy
     // W (d,n) @ x (n,) -> xout (d,)
-    // by far the most amount of time is spent inside this little function
     int i;
     #pragma omp parallel for private(i)
     for (i = 0; i < d; i++) {
