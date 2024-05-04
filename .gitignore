@@ -13,6 +13,8 @@ temp/
 run
 runq
 stories15M.bin
+stories42M.bin
+stories110M.bin
 out/*.pt
 out/*.bin
 out
