@@ -780,6 +780,12 @@ void generate(Transformer *transformer, Tokenizer *tokenizer, Sampler *sampler, 
     }
     printf("\n");
 
+    fprintf(stderr,"------ dim = %d\n", transformer->config.dim);
+    fprintf(stderr,"------ hidden_dim = %d\n", transformer->config.hidden_dim);
+    fprintf(stderr,"------ n_layers = %d\n", transformer->config.n_layers);
+    fprintf(stderr,"------ vocab_size = %d\n", transformer->config.vocab_size);
+    fprintf(stderr,"------ seq_len = %d\n", transformer->config.seq_len);
+
     // report achieved tok/s (pos-1 because the timer starts after first iteration)
     if (pos > 1) {
         long end = time_in_ms();
