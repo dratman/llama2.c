@@ -1,4 +1,8 @@
+
 /* Inference for Llama-2 Transformer model in pure C */
+//#define _TRACE_ yes // This is RD's vector output stream.
+//#define _COUNT_TOKENS_ yes
+#define _VOCAB_SIZE_ 1024
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -177,8 +181,11 @@ void free_transformer(Transformer* t) {
 }
 
 // ----------------------------------------------------------------------------
-// neural net blocks; the dynamics of the Transformer
-
+// Neural net blocks; the dynamics of the Transformer
+// Here we calculate a weighted sum of the input vector components.
+// To normalize, we square each input vector component, sum those squares, take sqrt,
+// then divide the weighted average of the input by that rms value.
+// As far as I can see, size always = dim.  -RD
 void rmsnorm(float* o, float* x, float* weight, int size) {
     // calculate sum of squares
     float ss = 0.0f;
