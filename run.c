@@ -468,6 +468,9 @@ void safe_printf(char *piece) {
         }
     }
     printf("%s", piece);
+#if defined _TRACE_
+    fprintf(stderr,"(*--------------------- STORY TEXT = %s ---------------------*)\n",piece);
+#endif
 }
 
 int str_lookup(char *str, TokenIndex *sorted_vocab, int vocab_size) {
