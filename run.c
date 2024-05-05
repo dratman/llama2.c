@@ -1,8 +1,8 @@
 
 /* Inference for Llama-2 Transformer model in pure C */
 //#define _TRACE_ yes // This is RD's vector output stream.
-//#define _COUNT_TOKENS_ yes
-#define _VOCAB_SIZE_ 1024
+#define _COUNT_TOKENS_ yes
+#define _VOCAB_SIZE_ 32000
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -254,14 +254,19 @@ float* forward(Transformer* transformer, int token, int pos) {
     int kv_mul = p->n_heads / p->n_kv_heads; // integer multiplier of the kv sharing in multiquery
     int hidden_dim =  p->hidden_dim;
     int head_size = dim / p->n_heads;
-
+#if defined _TRACE_
+      fprintf(stderr,"Entering forward(); p->dim = %d\n", p->dim);
+#endif
     // copy the token embedding into x
     float* content_row = w->token_embedding_table + token * dim;
     memcpy(x, content_row, dim*sizeof(*x));
 
-    // forward all the layers
+    // forward all the layers --------------------------------------------------* TOP OF LAYER LOOP *
     for(unsigned long long l = 0; l < p->n_layers; l++) {
-
+        // Each execution of this loop body moves the token vector through one layer.
+#if defined _TRACE_
+        fprintf(stderr,"(* position_in_sequence = %d, layer = %llu *)", position_in_sequence, layer);
+#endif
         // attention rmsnorm
         rmsnorm(s->xb, x, w->rms_att_weight + l*dim, dim);
 
@@ -429,7 +434,16 @@ void free_tokenizer(Tokenizer* t) {
     free(t->sorted_vocab);
 }
 
+#if defined _COUNT_TOKENS_
+uint token_counts[_VOCAB_SIZE_] = {0};
+#endif
+
 char* decode(Tokenizer* t, int prev_token, int token) {
+#if defined _COUNT_TOKENS_
+    if (0 < token < _VOCAB_SIZE_){
+        token_counts[token]++;
+    }
+#endif
     char *piece = t->vocab[token];
     // following BOS (1) token, sentencepiece decoder strips any leading whitespace (see PR #89)
     if (prev_token == 1 && piece[0] == ' ') { piece++; }
@@ -799,6 +813,15 @@ void generate(Transformer *transformer, Tokenizer *tokenizer, Sampler *sampler, 
         fprintf(stderr, "achieved tok/s: %f\n", (pos-1) / (double)(end-start)*1000);
     }
 
+#if defined _COUNT_TOKENS_
+     fprintf(stderr,"\nToken counts:");
+     for (int j=0; j<_VOCAB_SIZE_; j++) {
+        if (token_counts[j] > 0) {
+           fprintf(stderr, "\ntoken_counts[%d] = %d", j, token_counts[j]);
+        }
+     }
+#endif
+
     free(prompt_tokens);
 }
 
@@ -836,7 +859,8 @@ void chat(Transformer *transformer, Tokenizer *tokenizer, Sampler *sampler,
     int next;        // will store the next token in the sequence
     int token;       // stores the current token to feed into the transformer
     int prev_token;
-    int pos = 0;     // position in the sequence
+    int pos = 0;     // position in the buffer (sequence)
+    // steps is the most number of characters we're allowed to generate (from seq_len)
     while (pos < steps) {
 
         // when it is the user's turn to contribute tokens to the dialog...
@@ -983,11 +1007,23 @@ int main(int argc, char *argv[]) {
         fprintf(stderr, "unknown mode: %s\n", mode);
         error_usage();
     }
+    if (argc >= 2) {
+        checkpoint_path = argv[1];
+    } else {
+        error_usage();
+    }
+
+    if (argc >= 4) {
+      fprintf(stderr,
+          "\nargc = %d; \nargv[0] = %s; \nargv[1] = %s; \nargv[2] = %s; \nargv[3] = %s \n",
+          argc, argv[0], argv[1], argv[2], argv[3]);
+     }
 
     // memory and file handles cleanup
     free_sampler(&sampler);
     free_tokenizer(&tokenizer);
     free_transformer(&transformer);
     return 0;
-}
+} // END main()
+
 #endif
