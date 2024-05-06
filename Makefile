@@ -74,3 +74,8 @@ testcc:
 clean:
 	rm -f run
 	rm -f runq
+
+# the most basic way of building that is most likely to work on most systems
+try_curses: try_curses.c
+	$(CC) -O3 -o try_curses try_curses.c -lm -lncurses
+
