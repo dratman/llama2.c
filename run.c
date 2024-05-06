@@ -1,7 +1,7 @@
 
 /* Inference for Llama-2 Transformer model in pure C */
 //#define _TRACE_ yes // This is RD's vector output stream.
-#define _MATHEMATICA_OUTPUT_ yes
+#define _VECTOR_OUTPUT_ yes
 //#define _COUNT_TOKENS_ yes
 #define _VOCAB_SIZE_ 32000
 
@@ -273,17 +273,20 @@ float* forward(Transformer* transformer, int token, int pos) {
         fprintf(stderr,"(* position_in_sequence = %d, layer = %llu *)", pos, l);
 #endif
 
-#if defined _MATHEMATICA_OUTPUT_
-// Begin printing an assignment statement in Mathematica code.
-        fprintf(stderr, "\nGroup[%d] = {",nGroup);
+#if defined _VECTOR_OUTPUT_
+// Begin printing a comma-delimited list.
+        fprintf(stderr, "%d,",nGroup);
         nGroup++;
         // Print the dim (for example, 288) floats from one token vector
         // as part of the Mathematica assignment statement.
         for(int j = 0; j < p->dim ; j++){
-            fprintf(stderr,"%f, ", x[j]);
+        fprintf(stderr,"%f", x[j]);
+            if ((j+1) < p->dim){
+                fprintf(stderr, ",");
+            }
         }
         // Finish printing the Mathematica assignment statement.
-        fprintf(stderr, "};\n");//Just a right curly bracket and a newline.
+        fprintf(stderr, "\n");
 #endif
 
         // attention rmsnorm
