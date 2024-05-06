@@ -1,7 +1,8 @@
 
 /* Inference for Llama-2 Transformer model in pure C */
 //#define _TRACE_ yes // This is RD's vector output stream.
-#define _COUNT_TOKENS_ yes
+#define _MATHEMATICA_OUTPUT_ yes
+//#define _COUNT_TOKENS_ yes
 #define _VOCAB_SIZE_ 32000
 
 #include <stdio.h>
@@ -243,6 +244,9 @@ void matmul(float* xout, float* x, float* w, int n, int d) {
     }
 }
 
+static int nGroup = 0;
+
+// This function moves a single token vector through all of the successive n_layers layers.
 float* forward(Transformer* transformer, int token, int pos) {
     // a few convenience variables
     Config* p = &transformer->config;
@@ -250,6 +254,7 @@ float* forward(Transformer* transformer, int token, int pos) {
     RunState* s = &transformer->state;
     float *x = s->x;
     int dim = p->dim;
+    int n_layers=p->n_layers;
     int kv_dim = (p->dim * p->n_kv_heads) / p->n_heads;
     int kv_mul = p->n_heads / p->n_kv_heads; // integer multiplier of the kv sharing in multiquery
     int hidden_dim =  p->hidden_dim;
@@ -265,8 +270,22 @@ float* forward(Transformer* transformer, int token, int pos) {
     for(unsigned long long l = 0; l < p->n_layers; l++) {
         // Each execution of this loop body moves the token vector through one layer.
 #if defined _TRACE_
-        fprintf(stderr,"(* position_in_sequence = %d, layer = %llu *)", position_in_sequence, layer);
+        fprintf(stderr,"(* position_in_sequence = %d, layer = %llu *)", pos, l);
 #endif
+
+#if defined _MATHEMATICA_OUTPUT_
+// Begin printing an assignment statement in Mathematica code.
+        fprintf(stderr, "\nGroup[%d] = {",nGroup);
+        nGroup++;
+        // Print the dim (for example, 288) floats from one token vector
+        // as part of the Mathematica assignment statement.
+        for(int j = 0; j < p->dim ; j++){
+            fprintf(stderr,"%f, ", x[j]);
+        }
+        // Finish printing the Mathematica assignment statement.
+        fprintf(stderr, "};\n");//Just a right curly bracket and a newline.
+#endif
+
         // attention rmsnorm
         rmsnorm(s->xb, x, w->rms_att_weight + l*dim, dim);
 
