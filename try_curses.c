@@ -6,7 +6,7 @@ int main() {
     start_color(); // Enable color support
 
     // Define some color pairs
-    init_pair(1, COLOR_RED, COLOR_BLACK);
+    init_pair(1, COLOR_BLACK, COLOR_RED);
     init_pair(2, COLOR_GREEN, COLOR_BLACK);
     init_pair(3, COLOR_BLUE, COLOR_BLACK);
 
@@ -15,7 +15,8 @@ int main() {
 
     // Draw some colored text
     attron(COLOR_PAIR(1));
-    mvprintw(10, 10, "Red text");
+//    mvprintw(10, 10, "Red text");
+    mvprintw(10, 10, "_____");
     attroff(COLOR_PAIR(1));
 
     attron(COLOR_PAIR(2));
