@@ -244,7 +244,7 @@ if wandb_log and master_process:
     import wandb
     wandb.init(project=wandb_project, name=wandb_run_name, config=config)
 
-# training loop
+# training loop ---------------------------------- T R A I N I N G  L O O P --------------------
 train_batch_iter = iter_batches(split="train")
 X, Y = next(train_batch_iter)  # fetch the very first batch
 t0 = time.time()
