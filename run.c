@@ -247,6 +247,7 @@ void matmul(float* xout, float* x, float* w, int n, int d) {
 static int nGroup = 0;
 
 // This function moves a single token vector through all of the successive n_layers layers.
+
 float* forward(Transformer* transformer, int token, int pos) {
     // a few convenience variables
     Config* p = &transformer->config;
@@ -268,26 +269,32 @@ float* forward(Transformer* transformer, int token, int pos) {
 
     // forward all the layers --------------------------------------------------* TOP OF LAYER LOOP *
     for(unsigned long long l = 0; l < p->n_layers; l++) {
+
         // Each execution of this loop body moves the token vector through one layer.
+
 #if defined _TRACE_
         fprintf(stderr,"(* position_in_sequence = %d, layer = %llu *)", pos, l);
 #endif
 
 #if defined _VECTOR_OUTPUT_
-// Begin printing a comma-delimited list.
-        fprintf(stderr, "%d,",nGroup);
-        nGroup++;
-        // Print the dim (for example, 288) floats from one token vector
-        // as part of the Mathematica assignment statement.
-        for(int j = 0; j < p->dim ; j++){
-        fprintf(stderr,"%f", x[j]);
-            if ((j+1) < p->dim){
-                fprintf(stderr, ",");
-            }
-        }
-        // Finish printing the Mathematica assignment statement.
-        fprintf(stderr, "\n");
+        if (pos==1) {
+            // Begin printing a comma-delimited list.
+            fprintf(stderr, "%d,",nGroup);
+            nGroup++;
+            // Print the dim (for example, 288) floats from one
+            // token vector as part of the array output.
+            for(int j = 0; j < p->dim ; j++){
+                fprintf(stderr,"%f", x[j]);
+                if ((j+1) < p->dim){
+                    fprintf(stderr, ",");
+                }
+            }; // end for
+            // Finish printing the array output.
+            fprintf(stderr, "\n");
+        }; // end if
 #endif
+
+//    }; // end for
 
         // attention rmsnorm
         rmsnorm(s->xb, x, w->rms_att_weight + l*dim, dim);
@@ -826,16 +833,22 @@ void generate(Transformer *transformer, Tokenizer *tokenizer, Sampler *sampler, 
     }
     printf("\n");
 
-    fprintf(stderr,"------ dim = %d\n", transformer->config.dim);
-    fprintf(stderr,"------ hidden_dim = %d\n", transformer->config.hidden_dim);
-    fprintf(stderr,"------ n_layers = %d\n", transformer->config.n_layers);
-    fprintf(stderr,"------ vocab_size = %d\n", transformer->config.vocab_size);
-    fprintf(stderr,"------ seq_len = %d\n", transformer->config.seq_len);
+//     fprintf(stderr,"------ dim = %d\n", transformer->config.dim);
+//     fprintf(stderr,"------ hidden_dim = %d\n", transformer->config.hidden_dim);
+//     fprintf(stderr,"------ n_layers = %d\n", transformer->config.n_layers);
+//     fprintf(stderr,"------ vocab_size = %d\n", transformer->config.vocab_size);
+//     fprintf(stderr,"------ seq_len = %d\n", transformer->config.seq_len);
+
+    printf("------ dim = %d\n", transformer->config.dim);
+    printf("------ hidden_dim = %d\n", transformer->config.hidden_dim);
+    printf("------ n_layers = %d\n", transformer->config.n_layers);
+    printf("------ vocab_size = %d\n", transformer->config.vocab_size);
+    printf("------ seq_len = %d\n", transformer->config.seq_len);
 
     // report achieved tok/s (pos-1 because the timer starts after first iteration)
     if (pos > 1) {
         long end = time_in_ms();
-        fprintf(stderr, "achieved tok/s: %f\n", (pos-1) / (double)(end-start)*1000);
+        printf("achieved tok/s: %f\n", (pos-1) / (double)(end-start)*1000);
     }
 
 #if defined _COUNT_TOKENS_
