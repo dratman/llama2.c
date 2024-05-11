@@ -15,8 +15,8 @@ def fetch_wikipedia_articles(article_names_file, output_folder, base_filename, f
         for line in names_file:
             article_name = line.strip()
             try:
-                page = wikipedia.page(article_name)
-                story = {"story": page.content.strip()}
+                mypage=wikipedia.page(title='Las Meninas', pageid=None, auto_suggest=False, redirect=False)
+                story = {"story": mypage.content.strip()}
                 story_json = json.dumps(story, ensure_ascii=False)
                 all_stories.append(story_json)
                 current_size += len(story_json.encode('utf-8'))
