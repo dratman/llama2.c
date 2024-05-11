@@ -2,7 +2,8 @@ import json
 import os
 from wikipedia import wikipedia
 
-def fetch_wikipedia_articles(article_names_file, output_folder, base_filename, file_size=130*1024*1024, num_files=10):
+#def fetch_wikipedia_articles(article_names_file, output_folder, base_filename, file_size=130*1024*1024, num_files=10):
+def fetch_wikipedia_articles(article_names_file, output_folder, base_filename, file_size=10*1024*1024, num_files=10):
     wikipedia.set_lang('en')
     output_index = 0
     current_size = 0
@@ -15,7 +16,7 @@ def fetch_wikipedia_articles(article_names_file, output_folder, base_filename, f
         for line in names_file:
             article_name = line.strip()
             try:
-                mypage=wikipedia.page(title='Las Meninas', pageid=None, auto_suggest=False, redirect=False)
+                mypage=wikipedia.page(title=article_name, pageid=None, auto_suggest=False, redirect=True)
                 story = {"story": mypage.content.strip()}
                 story_json = json.dumps(story, ensure_ascii=False)
                 all_stories.append(story_json)

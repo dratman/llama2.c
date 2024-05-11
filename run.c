@@ -278,7 +278,7 @@ float* forward(Transformer* transformer, int token, int pos) {
 
 #if defined _VECTOR_OUTPUT_
         if (pos==1) {
-            // Begin printing a comma-delimited list.
+            // Print the group number, an integer.
             fprintf(stderr, "%d,",nGroup);
             nGroup++;
             // Print the dim (for example, 288) floats from one

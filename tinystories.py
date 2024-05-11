@@ -2,6 +2,11 @@
 Download, preprocess and serve the TinyStories dataset as a DataLoader.
 """
 
+# Corpus Prefix: selects the dataset ----------------------------------------- CORPUS_PREFIX_GLOBAL
+#corpus_prefix_global = "TinyStories"
+#corpus_prefix_global = "enwik9"
+corpus_prefix_global = "wikipedia_as_text"
+
 import argparse
 import glob
 import json
@@ -68,23 +73,26 @@ def download():
     print(f"Number of shards: {len(shard_filenames)}")
     print(f"Example story:\n{data[0]}")
 
+
 def train_vocab(vocab_size):
     """
     Trains a custom sentencepiece tokenizer on the TinyStories dataset.
     The custom tokenizer files will be saved in DATA_CACHE_DIR/tok{N} directories,
     where N is the vocab size. This is also where the pretok .bin files will go.
     """
+    global corpus_prefix_global
     assert vocab_size > 0, "Vocab size must be positive"
 
     # output file prefix path for sentencepiece
     prefix = os.path.join(DATA_CACHE_DIR, f"tok{vocab_size}")
 
     # how many shards we'll use for vocab training, kept low for efficiency
-    num_shards = 10
+    #num_shards = 10
+    num_shards = 5
 
     # 1) export a large chunk of text as a single text file tiny.txt
-    tiny_file = os.path.join(DATA_CACHE_DIR, "tiny.txt")
-    data_dir = os.path.join(DATA_CACHE_DIR, "TinyStories_all_data")
+    tiny_file = os.path.join(DATA_CACHE_DIR, corpus_prefix_global + ".txt")
+    data_dir = os.path.join(DATA_CACHE_DIR, corpus_prefix_global + "_all_data")
     shard_filenames = sorted(glob.glob(os.path.join(data_dir, "*.json")))
 
     print(f"Writing temporary file {tiny_file} with {num_shards} shards...")
@@ -157,8 +165,9 @@ def process_shard(args, vocab_size):
 
 
 def pretokenize(vocab_size):
+    global corpus_prefix_global
     # iterate the shards and tokenize all of them one by one
-    data_dir = os.path.join(DATA_CACHE_DIR, "TinyStories_all_data")
+    data_dir = os.path.join(DATA_CACHE_DIR, corpus_prefix_global + "_all_data")
     shard_filenames = sorted(glob.glob(os.path.join(data_dir, "*.json")))
     if vocab_size > 0:
         # .bin files will be saved into tok{N} directory, create it once here
@@ -183,6 +192,7 @@ class PretokDataset(torch.utils.data.IterableDataset):
         self.vocab_source = vocab_source
 
     def __iter__(self):
+        global corpus_prefix_global
         # get worker info within a DataLoader
         worker_info = torch.utils.data.get_worker_info()
         worker_id = worker_info.id if worker_info else 0
@@ -194,7 +204,7 @@ class PretokDataset(torch.utils.data.IterableDataset):
         print(f"Created a PretokDataset with rng seed {seed}")
         if self.vocab_source == "llama2":
             # the .bin files are right along the .json files
-            bin_dir = os.path.join(DATA_CACHE_DIR, "TinyStories_all_data")
+            bin_dir = os.path.join(DATA_CACHE_DIR, corpus_prefix_global + "_all_data")
             shard_filenames = sorted(glob.glob(os.path.join(bin_dir, "*.bin")))
         elif self.vocab_source == "custom":
             # the .bin files are in tok{N} directory
