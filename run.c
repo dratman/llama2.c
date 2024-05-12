@@ -1,7 +1,7 @@
 
 /* Inference for Llama-2 Transformer model in pure C */
 //#define _TRACE_ yes // This is RD's vector output stream.
-#define _VECTOR_OUTPUT_ yes
+//#define _VECTOR_OUTPUT_ yes
 //#define _COUNT_TOKENS_ yes
 #define _VOCAB_SIZE_ 32000
 

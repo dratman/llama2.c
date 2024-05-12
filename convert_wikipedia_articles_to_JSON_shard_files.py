@@ -1,6 +1,8 @@
 import json
 import os
 from wikipedia import wikipedia
+import re
+
 
 #def fetch_wikipedia_articles(article_names_file, output_folder, base_filename, file_size=130*1024*1024, num_files=10):
 def fetch_wikipedia_articles(article_names_file, output_folder, base_filename, file_size=10*1024*1024, num_files=10):
@@ -16,14 +18,44 @@ def fetch_wikipedia_articles(article_names_file, output_folder, base_filename, f
         for line in names_file:
             article_name = line.strip()
             try:
-                mypage=wikipedia.page(title=article_name, pageid=None, auto_suggest=False, redirect=True)
-                story = {"story": mypage.content.strip()}
-                story_json = json.dumps(story, ensure_ascii=False)
-                all_stories.append(story_json)
-                current_size += len(story_json.encode('utf-8'))
+            # Fetch the Wikipedia page
+                 mypage = wikipedia.page(title=article_name, pageid=None, auto_suggest=False, redirect=True)
 
-                # Check if the current file size exceeds the threshold or the file count limit is reached
-                if current_size >= file_size or (output_index >= num_files - 1 and num_files > 0):
+                 # Clean the content
+                 content = mypage.content
+
+                 # Remove non-printing characters like newline and carriage return
+                 content = re.sub(r'[\r\n]+', ' ', content)
+
+                 # Remove backslashes
+                 content = content.replace('\\', '')
+
+                 # Merge multiple spaces into one
+                 content = re.sub(r'\s+', ' ', content)
+
+                 # Strip leading and trailing spaces
+                 content = content.strip()
+
+                 # Prepare the story dictionary
+                 story = {"story": content}
+
+                 # Convert the dictionary to a JSON string
+                 story_json = json.dumps(story, ensure_ascii=True)
+
+                 # Append the JSON string to a list
+                 all_stories.append(story_json)
+
+                 # Update the current size
+                 current_size += len(story_json.encode('utf-8'))
+
+#                mypage=wikipedia.page(title=article_name, pageid=None, auto_suggest=False, redirect=True)
+#                story = {"story": mypage.content.strip()}
+#                story_json = json.dumps(story, ensure_ascii=True)
+#                all_stories.append(story_json)
+#                current_size += len(story_json.encode('utf-8'))
+
+                 # Check if the current file size exceeds the threshold or the file count limit is reached
+                 if current_size >= file_size or (output_index >= num_files - 1 and num_files > 0):
                     # Write to JSON file
                     filename = f"{output_folder}/{base_filename}{output_index:02d}.json"
                     with open(filename, 'w', encoding='utf-8') as file:
