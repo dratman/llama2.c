@@ -133,54 +133,56 @@ def train_vocab(vocab_size):
     print("Done.")
 
 
+import numpy as np
+import os
+import json
+from tqdm import tqdm
+from concurrent.futures import ProcessPoolExecutor
+from functools import partial
+import glob
+from concurrent.futures import ProcessPoolExecutor
+
 def process_shard(args, vocab_size):
     shard_id, shard = args
     tokenizer_model = get_tokenizer_model_path(vocab_size)
     enc = Tokenizer(tokenizer_model)
+    tokenized_data = []  # this will hold encoded data directly
+
+    # Limit the number of worker processes
+    num_workers = 4  # Adjust this number based on your system's capacity
+    with ProcessPoolExecutor(max_workers=num_workers) as executor:
+        executor.map(fun, enumerate(shard_filenames))
+
     with open(shard, "r") as f:
-        data = [json.loads(line) for line in f]
-    all_tokens = []
-    for example in tqdm(data, position=shard_id):
-        text = example["text"]
-        text = text.strip()  # get rid of leading/trailing whitespace
-        tokens = enc.encode(text, bos=True, eos=False)  # encode the text, use BOS
-        all_tokens.extend(tokens)
-    # convert to uint16 nparray
-    all_tokens = np.array(all_tokens, dtype=np.uint16)
-    # calculate the output filename
-    if vocab_size == 0:
-        # if we're using Llama 2, just save the tokenized file in the same dir
-        tokenized_filename = shard.replace(".json", ".bin")
-    else:
-        # save .bin files into a new tok{N} directory
-        bin_dir = os.path.join(DATA_CACHE_DIR, f"tok{vocab_size}")
-        shard_basename = os.path.basename(shard)
-        bin_basename = shard_basename.replace(".json", ".bin")
-        tokenized_filename = os.path.join(bin_dir, bin_basename)
-    # write the bytes
+        for line in f:
+            example = json.loads(line)
+            text = example["text"].strip()  # process each line individually
+            tokens = enc.encode(text, bos=True, eos=False)
+            tokenized_data.extend(tokens)  # extend is still used here for simplicity
+
+    # convert to numpy array once
+    all_tokens = np.array(tokenized_data, dtype=np.uint16)
+
+    # Save tokenized data
+    bin_dir = os.path.join(DATA_CACHE_DIR, f"tok{vocab_size}" if vocab_size > 0 else "")
+    os.makedirs(bin_dir, exist_ok=True)
+    tokenized_filename = os.path.join(bin_dir, os.path.basename(shard).replace(".json", ".bin"))
+
     with open(tokenized_filename, "wb") as f:
         f.write(all_tokens.tobytes())
-    # calculate the average sequence length (they are separated by BOS=1)
+
+    # Calculate the average sequence length
     avg_seq_len = all_tokens.size / ((all_tokens == 1).sum())
     print(f"Saved {tokenized_filename}, average seqlen: {avg_seq_len:.2f}")
 
-
 def pretokenize(vocab_size):
-    global corpus_prefix_global
-    # iterate the shards and tokenize all of them one by one
+    global DATA_CACHE_DIR, corpus_prefix_global
     data_dir = os.path.join(DATA_CACHE_DIR, corpus_prefix_global + "_all_data")
     shard_filenames = sorted(glob.glob(os.path.join(data_dir, "*.json")))
-    if vocab_size > 0:
-        # .bin files will be saved into tok{N} directory, create it once here
-        bin_dir = os.path.join(DATA_CACHE_DIR, f"tok{vocab_size}")
-        os.makedirs(bin_dir, exist_ok=True)
-
-    # process all the shards in a process pool
     fun = partial(process_shard, vocab_size=vocab_size)
     with ProcessPoolExecutor() as executor:
         executor.map(fun, enumerate(shard_filenames))
     print("Done.")
-
 
 class PretokDataset(torch.utils.data.IterableDataset):
     """Loads pretokenized examples from disk and yields them as PyTorch tensors."""
