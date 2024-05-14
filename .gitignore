@@ -19,4 +19,5 @@ out/*.pt
 out/*.bin
 out
 data/*
-
+tokenizer.model
+tokenizer.bin

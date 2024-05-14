@@ -5,7 +5,8 @@ Download, preprocess and serve the TinyStories dataset as a DataLoader.
 # Corpus Prefix: selects the dataset ----------------------------------------- CORPUS_PREFIX_GLOBAL
 #corpus_prefix_global = "TinyStories"
 #corpus_prefix_global = "enwik9"
-corpus_prefix_global = "wikipedia_as_text"
+#corpus_prefix_global = "wikipedia_as_text"
+corpus_prefix_global = "wikipedia_sentences"
 
 import argparse
 import glob
@@ -68,10 +69,10 @@ def download():
     # print a single example just for debugging and such
     shard_filenames = sorted(glob.glob(os.path.join(data_dir, "*.json")))
     with open(shard_filenames[0], "r") as f:
-        data = json.load(f)
+        data = [json.loads(line) for line in f]
     print("Download done.")
     print(f"Number of shards: {len(shard_filenames)}")
-    print(f"Example story:\n{data[0]}")
+    print(f"Example text:\n{data[0]}")
 
 
 def train_vocab(vocab_size):
@@ -99,9 +100,9 @@ def train_vocab(vocab_size):
     with open(tiny_file, "w", encoding="utf-8") as of:
         for shard in tqdm(shard_filenames[:num_shards]):
             with open(shard, "r") as f:
-                data = json.load(f)
+                data = [json.loads(line) for line in f]
             for example in data:
-                text = example["story"]
+                text = example["text"]
                 text = text.strip()
                 of.write(text + "\n")
     print(f"Size is: {os.path.getsize(tiny_file) / 1024 / 1024:.2f} MB")
@@ -137,10 +138,10 @@ def process_shard(args, vocab_size):
     tokenizer_model = get_tokenizer_model_path(vocab_size)
     enc = Tokenizer(tokenizer_model)
     with open(shard, "r") as f:
-        data = json.load(f)
+        data = [json.loads(line) for line in f]
     all_tokens = []
     for example in tqdm(data, position=shard_id):
-        text = example["story"]
+        text = example["text"]
         text = text.strip()  # get rid of leading/trailing whitespace
         tokens = enc.encode(text, bos=True, eos=False)  # encode the text, use BOS
         all_tokens.extend(tokens)
