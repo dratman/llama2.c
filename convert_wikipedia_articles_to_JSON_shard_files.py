@@ -3,9 +3,7 @@ import os
 from wikipedia import wikipedia
 import re
 
-
-#def fetch_wikipedia_articles(article_names_file, output_folder, base_filename, file_size=130*1024*1024, num_files=10):
-def fetch_wikipedia_articles(article_names_file, output_folder, base_filename, file_size=10*1024*1024, num_files=10):
+def fetch_wikipedia_articles(article_names_file, output_folder, base_filename, file_size=10*1024*1024, num_files=50):
     wikipedia.set_lang('en')
     output_index = 0
     current_size = 0
@@ -47,12 +45,6 @@ def fetch_wikipedia_articles(article_names_file, output_folder, base_filename, f
 
                  # Update the current size
                  current_size += len(story_json.encode('utf-8'))
-
-#                mypage=wikipedia.page(title=article_name, pageid=None, auto_suggest=False, redirect=True)
-#                story = {"story": mypage.content.strip()}
-#                story_json = json.dumps(story, ensure_ascii=True)
-#                all_stories.append(story_json)
-#                current_size += len(story_json.encode('utf-8'))
 
                  # Check if the current file size exceeds the threshold or the file count limit is reached
                  if current_size >= file_size or (output_index >= num_files - 1 and num_files > 0):
