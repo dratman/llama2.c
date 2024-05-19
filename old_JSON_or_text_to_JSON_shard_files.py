@@ -75,8 +75,8 @@ def fetch_wikipedia_articles(article_names_file, output_folder, base_filename, f
         print(f"Created final file {filename} with size ~{current_size/1024/1024:.2f} MB.")
 
 # Configuration
-article_names_file = "data/wikipedia_as_text/wikipedia_articles_list.txt"  # Path to your file with Wikipedia article names
-output_folder = "data/wikipedia_as_text/output_json_files"
+article_names_file = "data/wikipedia_sentences/wikipedia_sentences_list.txt"  # Path to your file with Wikipedia article names
+output_folder = "data/wikipedia_sentences/output_json_files"
 base_filename = "data"
 
 # Run the function
