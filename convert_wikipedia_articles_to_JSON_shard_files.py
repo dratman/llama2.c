@@ -17,9 +17,19 @@ def fetch_wikipedia_articles(article_names_file, output_folder, base_filename, f
     with open(article_names_file, 'r', encoding='utf-8') as names_file:
         for line in names_file:
             article_name = line.strip()
+            print("\n Checking ... ", article_name)
             try:
             # Fetch the Wikipedia page
                  mypage = wikipedia.page(title=article_name, pageid=None, auto_suggest=False, redirect=True)
+                 print("mypage = ", mypage)
+
+            except wikipedia.exceptions.PageError:
+                 print(f"Page not found: {article_name}")
+                 continue
+
+            except wikipedia.exceptions.DisambiguationError as e:
+                 print(f"Disambiguation error for {article_name}, options: {e.options}")
+                 continue
 
                  # Clean the content
                  content = mypage.content
@@ -70,10 +80,14 @@ def fetch_wikipedia_articles(article_names_file, output_folder, base_filename, f
                     # Stop if maximum file number is reached
                     if output_index >= num_files:
                         break
-            except wikipedia.exceptions.PageError:
-                print(f"Page not found: {article_name}")
-            except wikipedia.exceptions.DisambiguationError as e:
-                print(f"Disambiguation error for {article_name}, options: {e.options}")
+
+#            except wikipedia.exceptions.PageError:
+#                 print(f"Page not found: {article_name}")
+#                 continue
+#             except wikipedia.exceptions.DisambiguationError as e:
+#                 print(f"Disambiguation error for {article_name}, options: {e.options}")
+#                 continue
+
 
     # Final file write if any residual stories
     if all_stories and output_index < num_files:
