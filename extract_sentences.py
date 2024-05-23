@@ -43,7 +43,7 @@ def extract_sentences_from_json(file_path, max_length):
 
 if __name__ == "__main__":
     if len(sys.argv) != 4:
-        print("Usage: python script.py <max_length> <input_file_path> <output_file_path>")
+        print("Usage: python script.py <max_length> <input_file_path> <output_file_path>\nEx: python  extract_sentences.py  106  data/TS_all_data/data07.json  data/TS_all_data/sentences/data07.json")
         sys.exit(1)
 
     max_length = int(sys.argv[1])  # Convert the first argument to an integer
