@@ -1,5 +1,6 @@
 /* Inference for Llama-2 Transformer model in pure C */
 
+#define HOW_MANY 10
 #include <stdio.h>
 #include <stdlib.h>
 #include <ctype.h>
@@ -773,6 +774,7 @@ void generate(Transformer *transformer, Tokenizer *tokenizer, Sampler *sampler, 
     }
     printf("\n");
 
+#if 0
     // report achieved tok/s (pos-1 because the timer starts after first iteration)
     if (pos > 1) {
         long end = time_in_ms();
@@ -780,7 +782,10 @@ void generate(Transformer *transformer, Tokenizer *tokenizer, Sampler *sampler, 
     }
 
     free(prompt_tokens);
+#endif
+
 }
+
 
 void read_stdin(const char* guide, char* buffer, size_t bufsize) {
     // read a line from stdin, up to but not including \n
@@ -956,7 +961,9 @@ int main(int argc, char *argv[]) {
 
     // run!
     if (strcmp(mode, "generate") == 0) {
-        generate(&transformer, &tokenizer, &sampler, prompt, steps);
+        for (int j=1; j<HOW_MANY; j++) {
+            generate(&transformer, &tokenizer, &sampler, prompt, steps);
+        };
     } else if (strcmp(mode, "chat") == 0) {
         chat(&transformer, &tokenizer, &sampler, prompt, system_prompt, steps);
     } else {
