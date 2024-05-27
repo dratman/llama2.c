@@ -51,7 +51,7 @@ vocab_source = "llama2" # llama2|custom; use Lllama 2 vocab from Meta, or custom
 vocab_size = 32000 # the Llama 2 tokenizer has 32K tokens
 # model
 dim = 288
-n_layers = 1
+n_layers = 6
 n_heads = 6
 n_kv_heads = 6
 multiple_of = 32
