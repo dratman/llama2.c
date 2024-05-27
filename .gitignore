@@ -1,0 +1,12 @@
+__pycache__/
+a pseudo first level in a second hierarchy.txt
+assets.zip
+cudnn-local-repo-ubuntu2204-9.1.1_1.0-1_amd64.deb
+data/
+log_of_ORIGINAL_KARPATHY_train_vocab.txt
+out/
+pure_karpathy_with_tinystories_sentences.zip
+python
+run
+runq
+stories15M.bin
