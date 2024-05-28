@@ -1,3 +1,4 @@
+# Part of Andrej Karpathy's llama2.c project
 import math
 import struct
 import inspect
@@ -311,72 +312,40 @@ class Transformer(nn.Module):
         return mfu
 
     @torch.inference_mode()
+    def generate(self, idx, max_new_tokens, temperature=1.0, top_k=None, intermediate_layer=None):
+        """
+        Generate text from the model using embeddings from an intermediate layer.
+        Specify the layer with `intermediate_layer` (0-indexed); if None, uses final layer.
+        """
+        for _ in range(max_new_tokens):
+            idx_cond = idx if idx.size(1) <= self.params.max_seq_len else idx[:, -self.params.max_seq_len:]
 
-def generate(self, idx, max_new_tokens, temperature=1.0, top_k=None, intermediate_layer=None):
-    """
-    Generate text from the model using embeddings from an intermediate layer.
-    Specify the layer with `intermediate_layer` (0-indexed); if None, uses final layer.
-    """
-    for _ in range(max_new_tokens):
-        idx_cond = idx if idx.size(1) <= self.params.max_seq_len else idx[:, -self.params.max_seq_len:]
+            # Start with token embeddings
+            h = self.tok_embeddings(idx_cond)
+            h = self.dropout(h)
+            freqs_cos = self.freqs_cos[:idx_cond.size(1)]
+            freqs_sin = self.freqs_sin[:idx_cond.size(1)]
 
-        # Start with token embeddings
-        h = self.tok_embeddings(idx_cond)
-        h = self.dropout(h)
-        freqs_cos = self.freqs_cos[:idx_cond.size(1)]
-        freqs_sin = self.freqs_sin[:idx_cond.size(1)]
+            # Propagate through the transformer layers up to the specified layer
+            for i, layer in enumerate(self.layers):
+                h = layer(h, freqs_cos, freqs_sin)
+                if intermediate_layer is not None and i == intermediate_layer:
+                    # Break after the specified layer to use its output for generation
+                    break
 
-        # Propagate through the transformer layers up to the specified layer
-        for i, layer in enumerate(self.layers):
-            h = layer(h, freqs_cos, freqs_sin)
-            if intermediate_layer is not None and i == intermediate_layer:
-                # Break after the specified layer to use its output for generation
-                break
+            # Apply output transformation only to the last token's embedding
+            logits = self.output(h[:, -1, :])  # Using [-1] to focus on the last token
+            logits = logits / temperature
+            if top_k is not None:
+                # Optionally reduce the choices to top_k logits
+                v, _ = torch.topk(logits, min(top_k, logits.size(-1)))
+                logits[logits < v[:, [-1]]] = -float('Inf')
 
-        # Apply output transformation only to the last token's embedding
-        logits = self.output(h[:, -1, :])  # Using [-1] to focus on the last token
-        logits = logits / temperature
-        if top_k is not None:
-            # Optionally reduce the choices to top_k logits
-            v, _ = torch.topk(logits, min(top_k, logits.size(-1)))
-            logits[logits < v[:, [-1]]] = -float('Inf')
+            # Convert logits to probabilities
+            probs = F.softmax(logits, dim=-1)
+            # Sample from the probability distribution
+            idx_next = torch.multinomial(probs, num_samples=1)
+            # Append sampled index to the running sequence and continue
+            idx = torch.cat((idx, idx_next), dim=1)
 
-        # Convert logits to probabilities
-        probs = F.softmax(logits, dim=-1)
-        # Sample from the probability distribution
-        idx_next = torch.multinomial(probs, num_samples=1)
-        # Append sampled index to the running sequence and continue
-        idx = torch.cat((idx, idx_next), dim=1)
-
-    return idx
-
-    # def generate(self, idx, max_new_tokens, temperature=1.0, top_k=None):
-#         """
-#         Take a conditioning sequence of indices idx (LongTensor of shape (b,t)) and complete
-#         the sequence max_new_tokens times, feeding the predictions back into the model each time.
-#         Most likely you'll want to make sure to be in model.eval() mode of operation for this.
-#         Also note this is a super inefficient version of sampling with no key/value cache.
-#         """
-#         for _ in range(max_new_tokens):
-#             # if the sequence context is growing too long we must crop it at block_size
-#             idx_cond = idx if idx.size(1) <= self.params.max_seq_len else idx[:, -self.params.max_seq_len:]
-#             # forward the model to get the logits for the index in the sequence
-#             logits = self(idx_cond)
-#             logits = logits[:, -1, :] # crop to just the final time step
-#             if temperature == 0.0:
-#                 # "sample" the single most likely index
-#                 _, idx_next = torch.topk(logits, k=1, dim=-1)
-#             else:
-#                 # pluck the logits at the final step and scale by desired temperature
-#                 logits = logits / temperature
-#                 # optionally crop the logits to only the top k options
-#                 if top_k is not None:
-#                     v, _ = torch.topk(logits, min(top_k, logits.size(-1)))
-#                     logits[logits < v[:, [-1]]] = -float('Inf')
-#                 # apply softmax to convert logits to (normalized) probabilities
-#                 probs = F.softmax(logits, dim=-1)
-#                 idx_next = torch.multinomial(probs, num_samples=1)
-#             # append sampled index to the running sequence and continue
-#             idx = torch.cat((idx, idx_next), dim=1)
-#
-#         return idx
+        return idx

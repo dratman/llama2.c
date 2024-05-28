@@ -1,3 +1,4 @@
+/* Part of Andrej Karpathy's llama2.c project */
 /* Inference for Llama-2 Transformer model in pure C */
 
 #define HOW_MANY 10
@@ -945,6 +946,17 @@ int main(int argc, char *argv[]) {
     if (temperature < 0.0) temperature = 0.0;
     if (topp < 0.0 || 1.0 < topp) topp = 0.9;
     if (steps < 0) steps = 0;
+
+    printf("--------------\nThis is main() in run");
+    printf("\ntemperature = %f", temperature);
+    printf("\ntopp = %f", topp);
+    printf("\nrng_seed = %lld", rng_seed);
+    printf("\nsteps = %d", steps);
+    printf("\nprompt = %s", prompt);
+    printf("\ntokenizer_path = %s", tokenizer_path);
+    printf("\nmode = %s", mode);
+    printf("\nsystem_prompt = %s", system_prompt);
+    printf("\n--------------\n");
 
     // build the Transformer via the model .bin file
     Transformer transformer;

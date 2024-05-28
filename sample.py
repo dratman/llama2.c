@@ -1,4 +1,5 @@
 """
+Part of Andrej Karpathy's llama2.c project
 Sample from the trained model with PyTorch
 """
 import os
@@ -14,7 +15,7 @@ from tinystories import get_tokenizer_model_path
 checkpoint = 'out/ckpt.pt'
 start = "" # or "<|endoftext|>" or etc. Can also specify a file, use as: "FILE:prompt.txt"
 num_samples = 1 # number of samples to draw
-max_new_tokens = 100 # number of tokens generated in each sample
+max_new_tokens = 256 # number of tokens generated in each sample
 temperature = 1.0 # 1.0 = no change, < 1.0 = less random, > 1.0 = more random, in predictions
 top_k = 300 # retain only the top_k most likely tokens, clamp others to have 0 probability
 tokenizer = "" # override the tokenizer model path
@@ -69,6 +70,15 @@ if start.startswith('FILE:'):
         start = f.read()
 start_ids = enc.encode(start, bos=True, eos=False)
 x = (torch.tensor(start_ids, dtype=torch.long, device=device)[None, ...])
+
+print("--------------\nThis is sample.py");
+print("temperature = ", temperature)
+print("top_k = ", top_k)
+print("seed = ", seed)
+print("max_new_tokens = ", max_new_tokens)
+print("start = ", start[5:])
+print("tokenizer_model = ", tokenizer_model)
+print("--------------")
 
 # run generation
 with torch.no_grad():
