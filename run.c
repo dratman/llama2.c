@@ -947,17 +947,6 @@ int main(int argc, char *argv[]) {
     if (topp < 0.0 || 1.0 < topp) topp = 0.9;
     if (steps < 0) steps = 0;
 
-    printf("--------------\nThis is main() in run");
-    printf("\ntemperature = %f", temperature);
-    printf("\ntopp = %f", topp);
-    printf("\nrng_seed = %lld", rng_seed);
-    printf("\nsteps = %d", steps);
-    printf("\nprompt = %s", prompt);
-    printf("\ntokenizer_path = %s", tokenizer_path);
-    printf("\nmode = %s", mode);
-    printf("\nsystem_prompt = %s", system_prompt);
-    printf("\n--------------\n");
-
     // build the Transformer via the model .bin file
     Transformer transformer;
     build_transformer(&transformer, checkpoint_path);
@@ -970,6 +959,37 @@ int main(int argc, char *argv[]) {
     // build the Sampler
     Sampler sampler;
     build_sampler(&sampler, transformer.config.vocab_size, temperature, topp, rng_seed);
+
+/*
+typedef struct {
+    int dim; // transformer dimension
+    int hidden_dim; // for ffn layers
+    int n_layers; // number of layers
+    int n_heads; // number of query heads
+    int n_kv_heads; // number of key/value heads (can be < query heads because of multiquery)
+    int vocab_size; // vocabulary size, usually 256 (byte-level)
+    int seq_len; // max sequence length
+} Config;
+*/
+
+    printf("--------------\nThis is main() in run");
+    printf("\ntemperature = %f", temperature);
+    printf("\ntopp = %f", topp);
+    printf("\nrng_seed = %lld", rng_seed);
+    printf("\nsteps = %d", steps);
+    printf("\nprompt = %s", prompt);
+    printf("\ntokenizer_path = %s", tokenizer_path);
+    printf("\nmode = %s", mode);
+    printf("\nsystem_prompt = %s", system_prompt);
+    printf("\ndim = %d", transformer.config.dim);
+    printf("\nhidden_dim = %d", transformer.config.hidden_dim);
+    printf("\nn_layers = %d", transformer.config.n_layers);
+    printf("\nn_heads = %d", transformer.config.n_heads);
+    printf("\nn_kv_heads = %d", transformer.config.n_kv_heads);
+    printf("\nvocab_size = %d", transformer.config.vocab_size);
+    printf("\nseq_len = %d", transformer.config.seq_len);
+
+    printf("\n--------------\n");
 
     // run!
     if (strcmp(mode, "generate") == 0) {
