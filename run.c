@@ -247,7 +247,7 @@ float* forward(Transformer* transformer, int token, int pos) {
     float* content_row = w->token_embedding_table + token * dim;
     memcpy(x, content_row, dim*sizeof(*x));
 
-    // forward all the layers
+    // Process the "activation" (aka the embedding) x through each layer in turn; l is the layer number.
     for(unsigned long long l = 0; l < p->n_layers; l++) {
 
         // attention rmsnorm
@@ -960,18 +960,6 @@ int main(int argc, char *argv[]) {
     Sampler sampler;
     build_sampler(&sampler, transformer.config.vocab_size, temperature, topp, rng_seed);
 
-/*
-typedef struct {
-    int dim; // transformer dimension
-    int hidden_dim; // for ffn layers
-    int n_layers; // number of layers
-    int n_heads; // number of query heads
-    int n_kv_heads; // number of key/value heads (can be < query heads because of multiquery)
-    int vocab_size; // vocabulary size, usually 256 (byte-level)
-    int seq_len; // max sequence length
-} Config;
-*/
-
     printf("--------------\nThis is main() in run");
     printf("\ntemperature = %f", temperature);
     printf("\ntopp = %f", topp);
@@ -988,7 +976,6 @@ typedef struct {
     printf("\nn_kv_heads = %d", transformer.config.n_kv_heads);
     printf("\nvocab_size = %d", transformer.config.vocab_size);
     printf("\nseq_len = %d", transformer.config.seq_len);
-
     printf("\n--------------\n");
 
     // run!
