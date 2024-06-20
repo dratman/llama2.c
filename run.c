@@ -1,5 +1,9 @@
-/* Part of Andrej Karpathy's llama2.c project */
 /* Inference for Llama-2 Transformer model in pure C */
+
+//#define _TRACE_ yes            // Print a few function entry occurrences.
+#define _PRINT_EMBEDDINGS_ yes // This is RD's vector output stream.
+//#define _COUNT_TOKENS_ yes
+//#define _VOCAB_SIZE_ 32000     // This constant is only needed if _COUNT_TOKENS_ is defined.
 
 #define HOW_MANY 10
 #include <stdio.h>
@@ -30,19 +34,19 @@ typedef struct {
 
 typedef struct {
     // token embedding table
-    float* token_embedding_table;    // (vocab_size, dim)
+    float* token_embedding_table;    // (vocab_size by dim)
     // weights for rmsnorms
-    float* rms_att_weight; // (layer, dim) rmsnorm weights
-    float* rms_ffn_weight; // (layer, dim)
+    float* rms_att_weight; // (n_layers by dim) rmsnorm weights
+    float* rms_ffn_weight; // (n_layers by dim)
     // weights for matmuls. note dim == n_heads * head_size
-    float* wq; // (layer, dim, n_heads * head_size)
-    float* wk; // (layer, dim, n_kv_heads * head_size)
-    float* wv; // (layer, dim, n_kv_heads * head_size)
-    float* wo; // (layer, n_heads * head_size, dim)
+    float* wq; // (n_layers, dim, n_heads * head_size)
+    float* wk; // (n_layers, dim, n_kv_heads * head_size)
+    float* wv; // (n_layers, dim, n_kv_heads * head_size)
+    float* wo; // (n_layers, n_heads * head_size, dim)
     // weights for ffn
-    float* w1; // (layer, hidden_dim, dim)
-    float* w2; // (layer, dim, hidden_dim)
-    float* w3; // (layer, hidden_dim, dim)
+    float* w1; // (n_layers, hidden_dim, dim)
+    float* w2; // (n_layers, dim, hidden_dim)
+    float* w3; // (n_layers, hidden_dim, dim)
     // final rmsnorm
     float* rms_final_weight; // (dim,)
     // (optional) classifier weights for the logits, on the last layer
@@ -142,8 +146,7 @@ void memory_map_weights(TransformerWeights *w, Config* p, float* ptr, int shared
 
     ptr += n_layers * p->dim * p->hidden_dim;
     w->w2 = ptr;
-
-    ptr += n_layers * p->hidden_dim * p->dim;
+    ptr += n_layers * p->hidden_dim * p->dim;         // WHAT IS THIS? n_layers * dim * hidden_dim ?
     w->w3 = ptr;
 
     ptr += n_layers * p->dim * p->hidden_dim;
@@ -228,11 +231,18 @@ void softmax(float* x, int size) {
     for (int i = 0; i < size; i++) {
         x[i] /= sum;
     }
-}
+} // softmax
 
 void matmul(float* xout, float* x, float* w, int n, int d) {
-    // W (d,n) @ x (n,) -> xout (d,)
-    // by far the most amount of time is spent inside this little function
+    // w is a matrix of floats,    d rows by n columns (the "weights")
+    // x is a vector of floats,    n rows by 1 column  (the input vector)
+    // xout is a vector of floats, d rows by 1 column  (the output vector)
+    // So this is w . x --> xout, a matrix transformation of the input embedding.
+    // For a linear layer, this would be used as follows:
+    // x is the input from the prior layer,
+    // xout is the output to the next layer.
+    // w is the matrix of weights belonging to this layer.
+    // "By far the most amount of time is spent inside this little function." -Karpathy
     int i;
     #pragma omp parallel for private(i)
     for (i = 0; i < d; i++) {
@@ -244,6 +254,8 @@ void matmul(float* xout, float* x, float* w, int n, int d) {
     }
 }
 
+static int cur_group = 1;
+// This function moves a single token vector through all of the successive n_layers layers.
 float* forward(Transformer* transformer, int token, int pos) {
 
     // a few convenience variables
@@ -256,14 +268,29 @@ float* forward(Transformer* transformer, int token, int pos) {
     int kv_mul = p->n_heads / p->n_kv_heads; // integer multiplier of the kv sharing in multiquery
     int hidden_dim =  p->hidden_dim;
     int head_size = dim / p->n_heads;
-
+#if defined _TRACE_
+      fprintf(stderr,"Entering forward(); p->dim = %d\n", p->dim);
+#endif
     // copy the token embedding into x
     float* content_row = w->token_embedding_table + token * dim;
     memcpy(x, content_row, dim*sizeof(*x));
 
     // Process the "activation" (aka the embedding) x through each layer in turn; l is the layer number.
+    // forward all the layers  --------------------------------------------------* TOP OF LAYER LOOP *
     for(unsigned long long l = 0; l < p->n_layers; l++) {
-
+        // Each execution of this loop body moves the token vector through one layer.
+#if defined _PRINT_EMBEDDINGS_
+        // Print the dim (for example, 288) floats from one token vector
+        // as part of the CSV record.
+        for(int j = 1; j <= p->dim ; j++){
+            fprintf(stderr,"%f", x[j]);
+            if(j < p->dim) {
+                fprintf(stderr,", ");
+            }
+        }
+        // Finish printing the CSV record.
+        fprintf(stderr, "\n");
+#endif
         // attention rmsnorm
         rmsnorm(s->xb, x, w->rms_att_weight + l*dim, dim);
 
@@ -431,6 +458,10 @@ void free_tokenizer(Tokenizer* t) {
     free(t->sorted_vocab);
 }
 
+#if defined _COUNT_TOKENS_
+int token_counts[_VOCAB_SIZE_] = {0};
+#endif
+
 char* decode(Tokenizer* t, int prev_token, int token) {
     char *piece = t->vocab[token];
     // following BOS (1) token, sentencepiece decoder strips any leading whitespace (see PR #89)
@@ -456,6 +487,9 @@ void safe_printf(char *piece) {
         }
     }
     printf("%s", piece);
+#if defined _TRACE_
+    fprintf(stderr,"(*--------------------- STORY TEXT = %s ---------------------*)\n",piece);
+#endif
 }
 
 int str_lookup(char *str, TokenIndex *sorted_vocab, int vocab_size) {
@@ -707,6 +741,9 @@ float random_f32(unsigned long long *state) { // random float32 in [0,1)
 int sample(Sampler* sampler, float* logits) {
     // sample the token given the logits and some hyperparameters
     int next;
+#if defined _TRACE_
+    fprintf(stderr,"Entering sample()\n");
+#endif
     if (sampler->temperature == 0.0f) {
         // greedy argmax sampling: take the token with the highest probability
         next = sample_argmax(logits, sampler->vocab_size);
@@ -744,6 +781,9 @@ long time_in_ms() {
 
 void generate(Transformer *transformer, Tokenizer *tokenizer, Sampler *sampler, char *prompt, int steps) {
     char *empty_prompt = "";
+#if defined _TRACE_
+      fprintf(stderr,"Entering generate()\n");
+#endif
     if (prompt == NULL) { prompt = empty_prompt; }
 
     // encode the (string) prompt into tokens sequence
@@ -789,12 +829,21 @@ void generate(Transformer *transformer, Tokenizer *tokenizer, Sampler *sampler, 
     }
     printf("\n");
 
-#if 0
+#if 1
     // report achieved tok/s (pos-1 because the timer starts after first iteration)
     if (pos > 1) {
         long end = time_in_ms();
         fprintf(stderr, "achieved tok/s: %f\n", (pos-1) / (double)(end-start)*1000);
     }
+
+#if defined _COUNT_TOKENS_
+     fprintf(stderr,"\nToken counts:");
+     for (int j=0; j<_VOCAB_SIZE_; j++) {
+        if (token_counts[j] > 0) {
+           fprintf(stderr, "\ntoken_counts[%d] = %d", j, token_counts[j]);
+        }
+     }
+#endif
 
     free(prompt_tokens);
 #endif
