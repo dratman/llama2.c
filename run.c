@@ -114,6 +114,10 @@ void free_run_state(RunState* s) {
     free(s->value_cache);
 }
 
+FILE *embeddings_file;
+char checkpoint_path_buffer[1024]; // e.g. out/model.bin
+char embeddings_path_buffer[1024];
+
 void memory_map_weights(TransformerWeights *w, Config* p, float* ptr, int shared_weights) {
     int head_size = p->dim / p->n_heads;
 
@@ -180,9 +184,9 @@ void read_checkpoint(char* checkpoint, Config* config, TransformerWeights* weigh
     memory_map_weights(weights, config, weights_ptr, shared_weights);
 }
 
-void build_transformer(Transformer *t, char* checkpoint_path) {
+void build_transformer(Transformer *t, char* chkpt_path) {
     // read in the Config and the Weights from the checkpoint
-    read_checkpoint(checkpoint_path, &t->config, &t->weights, &t->fd, &t->data, &t->file_size);
+    read_checkpoint(chkpt_path, &t->config, &t->weights, &t->fd, &t->data, &t->file_size);
     // allocate the RunState buffers
     malloc_run_state(&t->state, &t->config);
 }
@@ -234,6 +238,7 @@ void softmax(float* x, int size) {
 } // softmax
 
 void matmul(float* xout, float* x, float* w, int n, int d) {
+    // "By far the most amount of time is spent inside this little function." -Karpathy
     // w is a matrix of floats,    d rows by n columns (the "weights")
     // x is a vector of floats,    n rows by 1 column  (the input vector)
     // xout is a vector of floats, d rows by 1 column  (the output vector)
@@ -242,7 +247,6 @@ void matmul(float* xout, float* x, float* w, int n, int d) {
     // x is the input from the prior layer,
     // xout is the output to the next layer.
     // w is the matrix of weights belonging to this layer.
-    // "By far the most amount of time is spent inside this little function." -Karpathy
     int i;
     #pragma omp parallel for private(i)
     for (i = 0; i < d; i++) {
@@ -274,12 +278,6 @@ float* forward(Transformer* transformer, int token, int pos) {
     float* content_row = w->token_embedding_table + token * dim;
     memcpy(x, content_row, dim*sizeof(*x));
 
-    // Open an output file to begin saving the embeddings into a csv file.
-    FILE *embeddings_file = fopen("~/embeddings.csv", "w");
-    if (embeddings_file == NULL) {
-        perror("Error opening file");
-    }
-
     // Process the "activation" (aka embeddings) array 'x' through each layer in turn.
     // l is the layer number.
     // forward all the layers  --------------------------------------------------* TOP OF LAYER LOOP *
@@ -291,7 +289,7 @@ float* forward(Transformer* transformer, int token, int pos) {
         for(int j = 1; j <= p->dim ; j++){
             fprintf(embeddings_file,"%f", x[j]);
             if(j < p->dim) {
-                fprintf(stderr,", ");
+                fprintf(embeddings_file,", ");
             }
         }
         // Finish printing the CSV record.
@@ -964,7 +962,7 @@ void chat(Transformer *transformer, Tokenizer *tokenizer, Sampler *sampler,
 
 // ----------------------------------------------------------------------------
 // CLI, include only if not testing
-#ifndef TESTING
+//#ifndef TESTING
 
 void error_usage() {
     fprintf(stderr, "Usage:   run <checkpoint> [options]\n");
@@ -981,10 +979,16 @@ void error_usage() {
     exit(EXIT_FAILURE);
 }
 
+void extract_path_without_filename(char *path) {
+    char *last_slash = strrchr(path, '/');
+    if (last_slash != NULL) {
+        *last_slash = '\0';  // Replace the last slash with a null terminator
+    }
+}
+
 int main(int argc, char *argv[]) {
 
     // default parameters
-    char *checkpoint_path = NULL;  // e.g. out/model.bin
     char *tokenizer_path = "tokenizer.bin";
     float temperature = 1.0f;   // 0.0 = greedy deterministic. 1.0 = original. don't set higher
     float topp = 0.9f;          // top-p in nucleus sampling. 1.0 = off. 0.9 works well, but slower
@@ -994,8 +998,14 @@ int main(int argc, char *argv[]) {
     char *mode = "generate";    // generate|chat
     char *system_prompt = NULL; // the (optional) system prompt to use in chat mode
 
-    // poor man's C argparse so we can override the defaults above from the command line
-    if (argc >= 2) { checkpoint_path = argv[1]; } else { error_usage(); }
+    // Poor man's C argparse so we can override the defaults above from the command line.
+    if (argc >= 2) {
+        // Get the full checkpoint path from the command line.
+        strncpy(checkpoint_path_buffer, argv[1], sizeof(checkpoint_path_buffer)-1);
+    }
+    else {
+         error_usage();
+    }
     for (int i = 2; i < argc; i+=2) {
         // do some basic validation
         if (i + 1 >= argc) { error_usage(); } // must have arg after flag
@@ -1013,6 +1023,25 @@ int main(int argc, char *argv[]) {
         else { error_usage(); }
     }
 
+    strncpy(checkpoint_path_buffer, argv[1], sizeof(checkpoint_path_buffer) - 1);
+    checkpoint_path_buffer[sizeof(checkpoint_path_buffer) - 1] = '\0';  // Ensure null termination
+    extract_path_without_filename(checkpoint_path_buffer);
+    printf("\nOutput directory: %s\n", checkpoint_path_buffer);
+
+#define _WRITE_EMB_FILE_ 1
+    // Open an output file to begin saving the embeddings into a csv file.
+#if defined _WRITE_EMB_FILE_
+    strncpy(embeddings_path_buffer, checkpoint_path_buffer, sizeof(embeddings_path_buffer) - 1);
+    strcat(embeddings_path_buffer, "/embeddings.csv");
+    //embeddings_file = fopen("$embeddings_path_buffer", "w");
+    printf("\nOutput path for embeddings: %s\n", embeddings_path_buffer);
+#else
+    FILE *embeddings_file = stderr;
+#endif
+    if (embeddings_file == NULL) {
+        perror("Error opening file");
+    }
+
     // parameter validation/overrides
     if (rng_seed <= 0) rng_seed = (unsigned int)time(NULL);
     if (temperature < 0.0) temperature = 0.0;
@@ -1021,7 +1050,7 @@ int main(int argc, char *argv[]) {
 
     // build the Transformer via the model .bin file
     Transformer transformer;
-    build_transformer(&transformer, checkpoint_path);
+    build_transformer(&transformer, checkpoint_path_buffer);
     if (steps == 0 || steps > transformer.config.seq_len) steps = transformer.config.seq_len; // override to ~max length
 
     // build the Tokenizer via the tokenizer .bin file
@@ -1068,4 +1097,4 @@ int main(int argc, char *argv[]) {
     free_transformer(&transformer);
     return 0;
 }
-#endif
+//#endif
