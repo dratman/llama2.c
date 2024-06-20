@@ -257,7 +257,6 @@ void matmul(float* xout, float* x, float* w, int n, int d) {
 static int cur_group = 1;
 // This function moves a single token vector through all of the successive n_layers layers.
 float* forward(Transformer* transformer, int token, int pos) {
-
     // a few convenience variables
     Config* p = &transformer->config;
     TransformerWeights* w = &transformer->weights;
@@ -275,21 +274,28 @@ float* forward(Transformer* transformer, int token, int pos) {
     float* content_row = w->token_embedding_table + token * dim;
     memcpy(x, content_row, dim*sizeof(*x));
 
-    // Process the "activation" (aka the embedding) x through each layer in turn; l is the layer number.
+    // Open an output file to begin saving the embeddings into a csv file.
+    FILE *embeddings_file = fopen("~/embeddings.csv", "w");
+    if (embeddings_file == NULL) {
+        perror("Error opening file");
+    }
+
+    // Process the "activation" (aka embeddings) array 'x' through each layer in turn.
+    // l is the layer number.
     // forward all the layers  --------------------------------------------------* TOP OF LAYER LOOP *
     for(unsigned long long l = 0; l < p->n_layers; l++) {
         // Each execution of this loop body moves the token vector through one layer.
 #if defined _PRINT_EMBEDDINGS_
-        // Print the dim (for example, 288) floats from one token vector
-        // as part of the CSV record.
+        // Print the dim (for example, 288) floats from
+        // a single token-embedding vector as a CSV record.
         for(int j = 1; j <= p->dim ; j++){
-            fprintf(stderr,"%f", x[j]);
+            fprintf(embeddings_file,"%f", x[j]);
             if(j < p->dim) {
                 fprintf(stderr,", ");
             }
         }
         // Finish printing the CSV record.
-        fprintf(stderr, "\n");
+        fprintf(embeddings_file, "\n");
 #endif
         // attention rmsnorm
         rmsnorm(s->xb, x, w->rms_att_weight + l*dim, dim);
@@ -402,7 +408,10 @@ float* forward(Transformer* transformer, int token, int pos) {
     // classifier into logits
     matmul(s->logits, x, w->wcls, p->dim, p->vocab_size);
     return s->logits;
-}
+
+    fclose(embeddings_file);
+
+} // End forward()
 
 // ----------------------------------------------------------------------------
 // The Byte Pair Encoding (BPE) Tokenizer that translates strings <-> tokens
