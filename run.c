@@ -1,7 +1,7 @@
 /* Inference for Llama-2 Transformer model in pure C */
 
-//#define _TRACE_ yes            // Print a few function entry occurrences.
-#define _PRINT_EMBEDDINGS_ yes // This is RD's vector output stream.
+//#define _PRINT_EMBEDDINGS_ yes // This is RD's vector output stream.
+//#define _WRITE_EMB_FILE_ yes
 //#define _COUNT_TOKENS_ yes
 //#define _VOCAB_SIZE_ 32000     // This constant is only needed if _COUNT_TOKENS_ is defined.
 
@@ -116,6 +116,7 @@ void free_run_state(RunState* s) {
 
 FILE *embeddings_file;
 char checkpoint_path_buffer[1024]; // e.g. out/model.bin
+char copy_of_checkpoint_path_buffer[1024];
 char embeddings_path_buffer[1024];
 
 void memory_map_weights(TransformerWeights *w, Config* p, float* ptr, int shared_weights) {
@@ -271,9 +272,7 @@ float* forward(Transformer* transformer, int token, int pos) {
     int kv_mul = p->n_heads / p->n_kv_heads; // integer multiplier of the kv sharing in multiquery
     int hidden_dim =  p->hidden_dim;
     int head_size = dim / p->n_heads;
-#if defined _TRACE_
-      fprintf(stderr,"Entering forward(); p->dim = %d\n", p->dim);
-#endif
+
     // copy the token embedding into x
     float* content_row = w->token_embedding_table + token * dim;
     memcpy(x, content_row, dim*sizeof(*x));
@@ -494,9 +493,6 @@ void safe_printf(char *piece) {
         }
     }
     printf("%s", piece);
-#if defined _TRACE_
-    fprintf(stderr,"(*--------------------- STORY TEXT = %s ---------------------*)\n",piece);
-#endif
 }
 
 int str_lookup(char *str, TokenIndex *sorted_vocab, int vocab_size) {
@@ -748,9 +744,7 @@ float random_f32(unsigned long long *state) { // random float32 in [0,1)
 int sample(Sampler* sampler, float* logits) {
     // sample the token given the logits and some hyperparameters
     int next;
-#if defined _TRACE_
-    fprintf(stderr,"Entering sample()\n");
-#endif
+
     if (sampler->temperature == 0.0f) {
         // greedy argmax sampling: take the token with the highest probability
         next = sample_argmax(logits, sampler->vocab_size);
@@ -788,9 +782,7 @@ long time_in_ms() {
 
 void generate(Transformer *transformer, Tokenizer *tokenizer, Sampler *sampler, char *prompt, int steps) {
     char *empty_prompt = "";
-#if defined _TRACE_
-      fprintf(stderr,"Entering generate()\n");
-#endif
+
     if (prompt == NULL) { prompt = empty_prompt; }
 
     // encode the (string) prompt into tokens sequence
@@ -836,11 +828,10 @@ void generate(Transformer *transformer, Tokenizer *tokenizer, Sampler *sampler, 
     }
     printf("\n");
 
-#if 1
     // report achieved tok/s (pos-1 because the timer starts after first iteration)
     if (pos > 1) {
         long end = time_in_ms();
-        fprintf(stderr, "achieved tok/s: %f\n", (pos-1) / (double)(end-start)*1000);
+        //fprintf(stderr, "achieved tok/s: %f\n", (pos-1) / (double)(end-start)*1000);
     }
 
 #if defined _COUNT_TOKENS_
@@ -853,7 +844,6 @@ void generate(Transformer *transformer, Tokenizer *tokenizer, Sampler *sampler, 
 #endif
 
     free(prompt_tokens);
-#endif
 
 }
 
@@ -987,7 +977,6 @@ void extract_path_without_filename(char *path) {
 }
 
 int main(int argc, char *argv[]) {
-
     // default parameters
     char *tokenizer_path = "tokenizer.bin";
     float temperature = 1.0f;   // 0.0 = greedy deterministic. 1.0 = original. don't set higher
@@ -1002,6 +991,9 @@ int main(int argc, char *argv[]) {
     if (argc >= 2) {
         // Get the full checkpoint path from the command line.
         strncpy(checkpoint_path_buffer, argv[1], sizeof(checkpoint_path_buffer)-1);
+        checkpoint_path_buffer[sizeof(checkpoint_path_buffer) - 1] = '\0';  // Ensure null termination
+        strncpy(copy_of_checkpoint_path_buffer, checkpoint_path_buffer, sizeof(checkpoint_path_buffer)-1);
+        extract_path_without_filename(checkpoint_path_buffer);
     }
     else {
          error_usage();
@@ -1021,26 +1013,23 @@ int main(int argc, char *argv[]) {
         else if (argv[i][1] == 'm') { mode = argv[i + 1]; }
         else if (argv[i][1] == 'y') { system_prompt = argv[i + 1]; }
         else { error_usage(); }
-    }
+    } //End for
 
-    strncpy(checkpoint_path_buffer, argv[1], sizeof(checkpoint_path_buffer) - 1);
-    checkpoint_path_buffer[sizeof(checkpoint_path_buffer) - 1] = '\0';  // Ensure null termination
-    extract_path_without_filename(checkpoint_path_buffer);
-    printf("\nOutput directory: %s\n", checkpoint_path_buffer);
+#if defined _PRINT_EMBEDDINGS_
 
-#define _WRITE_EMB_FILE_ 1
-    // Open an output file to begin saving the embeddings into a csv file.
 #if defined _WRITE_EMB_FILE_
+    // Open an output file to begin saving the embeddings into a csv file.
     strncpy(embeddings_path_buffer, checkpoint_path_buffer, sizeof(embeddings_path_buffer) - 1);
     strcat(embeddings_path_buffer, "/embeddings.csv");
-    //embeddings_file = fopen("$embeddings_path_buffer", "w");
-    printf("\nOutput path for embeddings: %s\n", embeddings_path_buffer);
-#else
-    FILE *embeddings_file = stderr;
-#endif
+    embeddings_file = fopen("$embeddings_path_buffer", "w");
     if (embeddings_file == NULL) {
         perror("Error opening file");
     }
+#else
+    FILE *embeddings_file = stderr;
+#endif
+
+#endif
 
     // parameter validation/overrides
     if (rng_seed <= 0) rng_seed = (unsigned int)time(NULL);
@@ -1050,8 +1039,11 @@ int main(int argc, char *argv[]) {
 
     // build the Transformer via the model .bin file
     Transformer transformer;
-    build_transformer(&transformer, checkpoint_path_buffer);
-    if (steps == 0 || steps > transformer.config.seq_len) steps = transformer.config.seq_len; // override to ~max length
+    build_transformer(&transformer, copy_of_checkpoint_path_buffer);
+
+    if (steps == 0 || steps > transformer.config.seq_len) {
+        steps = transformer.config.seq_len; // override to ~max length
+    }
 
     // build the Tokenizer via the tokenizer .bin file
     Tokenizer tokenizer;
@@ -1061,7 +1053,7 @@ int main(int argc, char *argv[]) {
     Sampler sampler;
     build_sampler(&sampler, transformer.config.vocab_size, temperature, topp, rng_seed);
 
-    printf("--------------\nThis is main() in run");
+    printf("\n--------------");
     printf("\ntemperature = %f", temperature);
     printf("\ntopp = %f", topp);
     printf("\nrng_seed = %lld", rng_seed);
@@ -1097,4 +1089,3 @@ int main(int argc, char *argv[]) {
     free_transformer(&transformer);
     return 0;
 }
-//#endif
