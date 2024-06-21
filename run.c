@@ -1,7 +1,7 @@
 /* Inference for Llama-2 Transformer model in pure C */
 
-//#define _EMIT_EMBEDDINGS_ yes // This is RD's vector output stream.
-//#define _WRITE_EMB_FILE_ yes
+#define _EMIT_EMBEDDINGS_ yes // This is RD's vector output stream.
+#define _WRITE_EMB_FILE_ yes
 //#define _COUNT_TOKENS_ yes
 //#define _VOCAB_SIZE_ 32000     // This constant is only needed if _COUNT_TOKENS_ is defined.
 
@@ -1021,7 +1021,7 @@ int main(int argc, char *argv[]) {
     // Open an output file to begin saving the embeddings into a csv file.
     strncpy(embeddings_path_buffer, checkpoint_path, sizeof(embeddings_path_buffer) - 1);
     strcat(embeddings_path_buffer, "/embeddings.csv");
-    embeddings_file = fopen("$embeddings_path_buffer", "w");
+    embeddings_file = fopen(embeddings_path_buffer, "w");
     if (embeddings_file == NULL) {
         perror("Error opening file");
     }
