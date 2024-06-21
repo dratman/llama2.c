@@ -1,6 +1,6 @@
 /* Inference for Llama-2 Transformer model in pure C */
 
-//#define _PRINT_EMBEDDINGS_ yes // This is RD's vector output stream.
+//#define _EMIT_EMBEDDINGS_ yes // This is RD's vector output stream.
 //#define _WRITE_EMB_FILE_ yes
 //#define _COUNT_TOKENS_ yes
 //#define _VOCAB_SIZE_ 32000     // This constant is only needed if _COUNT_TOKENS_ is defined.
@@ -99,7 +99,7 @@ void malloc_run_state(RunState* s, Config* p) {
         fprintf(stderr, "malloc failed!\n");
         exit(EXIT_FAILURE);
     }
-}
+} // End malloc_run_state()
 
 void free_run_state(RunState* s) {
     free(s->x);
@@ -112,11 +112,11 @@ void free_run_state(RunState* s) {
     free(s->logits);
     free(s->key_cache);
     free(s->value_cache);
-}
+} // End free_run_state()
 
 FILE *embeddings_file;
-char checkpoint_path_buffer[1024]; // e.g. out/model.bin
-char copy_of_checkpoint_path_buffer[1024];
+char checkpoint_path[1024]; // e.g. out/model.bin
+char copy_of_checkpoint_path[1024];
 char embeddings_path_buffer[1024];
 
 void memory_map_weights(TransformerWeights *w, Config* p, float* ptr, int shared_weights) {
@@ -161,7 +161,7 @@ void memory_map_weights(TransformerWeights *w, Config* p, float* ptr, int shared
     ptr += p->seq_len * head_size / 2; // skip what used to be freq_cis_real (for RoPE)
     ptr += p->seq_len * head_size / 2; // skip what used to be freq_cis_imag (for RoPE)
     w->wcls = shared_weights ? w->token_embedding_table : ptr;
-}
+} // End memory_map_weights()
 
 void read_checkpoint(char* checkpoint, Config* config, TransformerWeights* weights,
                      int* fd, float** data, ssize_t* file_size) {
@@ -183,14 +183,14 @@ void read_checkpoint(char* checkpoint, Config* config, TransformerWeights* weigh
     if (*data == MAP_FAILED) { fprintf(stderr, "mmap failed!\n"); exit(EXIT_FAILURE); }
     float* weights_ptr = *data + sizeof(Config)/sizeof(float);
     memory_map_weights(weights, config, weights_ptr, shared_weights);
-}
+} // End read_checkpoint()
 
 void build_transformer(Transformer *t, char* chkpt_path) {
     // read in the Config and the Weights from the checkpoint
     read_checkpoint(chkpt_path, &t->config, &t->weights, &t->fd, &t->data, &t->file_size);
     // allocate the RunState buffers
     malloc_run_state(&t->state, &t->config);
-}
+} // End build_transformer()
 
 void free_transformer(Transformer* t) {
     // close the memory mapping
@@ -198,7 +198,7 @@ void free_transformer(Transformer* t) {
     if (t->fd != -1) { close(t->fd); }
     // free the RunState buffers
     free_run_state(&t->state);
-}
+} // End free_transformer()
 
 // ----------------------------------------------------------------------------
 // neural net blocks; the dynamics of the Transformer
@@ -216,7 +216,7 @@ void rmsnorm(float* o, float* x, float* weight, int size) {
     for (int j = 0; j < size; j++) {
         o[j] = weight[j] * (ss * x[j]);
     }
-}
+} // End rmsnorm()
 
 void softmax(float* x, int size) {
     // find max value (for numerical stability)
@@ -236,7 +236,7 @@ void softmax(float* x, int size) {
     for (int i = 0; i < size; i++) {
         x[i] /= sum;
     }
-} // softmax
+} // End softmax()
 
 void matmul(float* xout, float* x, float* w, int n, int d) {
     // "By far the most amount of time is spent inside this little function." -Karpathy
@@ -257,9 +257,10 @@ void matmul(float* xout, float* x, float* w, int n, int d) {
         }
         xout[i] = val;
     }
-}
+} // End matmul()
 
 static int cur_group = 1;
+
 // This function moves a single token vector through all of the successive n_layers layers.
 float* forward(Transformer* transformer, int token, int pos) {
     // a few convenience variables
@@ -282,7 +283,7 @@ float* forward(Transformer* transformer, int token, int pos) {
     // forward all the layers  --------------------------------------------------* TOP OF LAYER LOOP *
     for(unsigned long long l = 0; l < p->n_layers; l++) {
         // Each execution of this loop body moves the token vector through one layer.
-#if defined _PRINT_EMBEDDINGS_
+#if defined _EMIT_EMBEDDINGS_
         // Print the dim (for example, 288) floats from
         // a single token-embedding vector as a CSV record.
         for(int j = 1; j <= p->dim ; j++){
@@ -429,7 +430,7 @@ typedef struct {
 
 int compare_tokens(const void *a, const void *b) {
     return strcmp(((TokenIndex*)a)->str, ((TokenIndex*)b)->str);
-}
+} // End compare_tokens()
 
 void build_tokenizer(Tokenizer* t, char* tokenizer_path, int vocab_size) {
     // i should have written the vocab_size into the tokenizer file... sigh
@@ -455,14 +456,14 @@ void build_tokenizer(Tokenizer* t, char* tokenizer_path, int vocab_size) {
         t->vocab[i][len] = '\0'; // add the string terminating token
     }
     fclose(file);
-}
+} // End build_tokenize()
 
 void free_tokenizer(Tokenizer* t) {
     for (int i = 0; i < t->vocab_size; i++) { free(t->vocab[i]); }
     free(t->vocab);
     free(t->vocab_scores);
     free(t->sorted_vocab);
-}
+} // End free_tokenize()
 
 #if defined _COUNT_TOKENS_
 int token_counts[_VOCAB_SIZE_] = {0};
@@ -479,7 +480,7 @@ char* decode(Tokenizer* t, int prev_token, int token) {
         piece = (char*)t->byte_pieces + byte_val * 2;
     }
     return piece;
-}
+} // End decode()
 
 void safe_printf(char *piece) {
     // piece might be a raw byte token, and we only want to print printable chars or whitespace
@@ -493,14 +494,14 @@ void safe_printf(char *piece) {
         }
     }
     printf("%s", piece);
-}
+} // End safe_printf()
 
 int str_lookup(char *str, TokenIndex *sorted_vocab, int vocab_size) {
     // efficiently find the perfect match for str in vocab, return its index or -1 if not found
     TokenIndex tok = { .str = str }; // acts as the key to search for
     TokenIndex *res = bsearch(&tok, sorted_vocab, vocab_size, sizeof(TokenIndex), compare_tokens);
     return res != NULL ? res->id : -1;
-}
+} // End str_lookup()
 
 void encode(Tokenizer* t, char *text, int8_t bos, int8_t eos, int *tokens, int *n_tokens) {
     // encode the string text (input) into an upper-bound preallocated tokens[] array
@@ -515,7 +516,7 @@ void encode(Tokenizer* t, char *text, int8_t bos, int8_t eos, int *tokens, int *
             t->sorted_vocab[i].id = i;
         }
         qsort(t->sorted_vocab, t->vocab_size, sizeof(TokenIndex), compare_tokens);
-    }
+    } // End encode()
 
     // create a temporary buffer that will store merge candidates of always two consecutive tokens
     // *2 for concat, +1 for null terminator +2 for UTF8 (in case max_token_length is 1)
@@ -621,7 +622,7 @@ void encode(Tokenizer* t, char *text, int8_t bos, int8_t eos, int *tokens, int *
     if (eos) tokens[(*n_tokens)++] = 2;
 
     free(str_buffer);
-}
+} // End encod()
 
 // ----------------------------------------------------------------------------
 // The Sampler, which takes logits and returns a sampled token
@@ -664,7 +665,7 @@ int sample_mult(float* probabilities, int n, float coin) {
         }
     }
     return n - 1; // in case of rounding errors
-}
+} // End sample_mult()
 
 int compare(const void* a, const void* b) {
     ProbIndex* a_ = (ProbIndex*) a;
@@ -672,7 +673,7 @@ int compare(const void* a, const void* b) {
     if (a_->prob > b_->prob) return -1;
     if (a_->prob < b_->prob) return 1;
     return 0;
-}
+} // End compare()
 
 int sample_topp(float* probabilities, int n, float topp, ProbIndex* probindex, float coin) {
     // top-p sampling (or "nucleus sampling") samples from the smallest set of
@@ -715,7 +716,7 @@ int sample_topp(float* probabilities, int n, float topp, ProbIndex* probindex, f
         }
     }
     return probindex[last_idx].index; // in case of rounding errors
-}
+} // End sample_top()
 
 void build_sampler(Sampler* sampler, int vocab_size, float temperature, float topp, unsigned long long rng_seed) {
     sampler->vocab_size = vocab_size;
@@ -724,11 +725,11 @@ void build_sampler(Sampler* sampler, int vocab_size, float temperature, float to
     sampler->rng_state = rng_seed;
     // buffer only used with nucleus sampling; may not need but it's ~small
     sampler->probindex = malloc(sampler->vocab_size * sizeof(ProbIndex));
-}
+} // End build_sample()
 
 void free_sampler(Sampler* sampler) {
     free(sampler->probindex);
-}
+} // End free_sampler()
 
 unsigned int random_u32(unsigned long long *state) {
     // xorshift rng: https://en.wikipedia.org/wiki/Xorshift#xorshift.2A
@@ -736,10 +737,11 @@ unsigned int random_u32(unsigned long long *state) {
     *state ^= *state << 25;
     *state ^= *state >> 27;
     return (*state * 0x2545F4914F6CDD1Dull) >> 32;
-}
+}  // End random_u32
+
 float random_f32(unsigned long long *state) { // random float32 in [0,1)
     return (random_u32(state) >> 8) / 16777216.0f;
-}
+} // End random_f32()
 
 int sample(Sampler* sampler, float* logits) {
     // sample the token given the logits and some hyperparameters
@@ -765,7 +767,7 @@ int sample(Sampler* sampler, float* logits) {
         }
     }
     return next;
-}
+} // End sample()
 
 // ----------------------------------------------------------------------------
 // utilities: time
@@ -775,7 +777,7 @@ long time_in_ms() {
     struct timespec time;
     clock_gettime(CLOCK_REALTIME, &time);
     return time.tv_sec * 1000 + time.tv_nsec / 1000000;
-}
+} // End time_in_ms()
 
 // ----------------------------------------------------------------------------
 // generation loop
@@ -792,7 +794,7 @@ void generate(Transformer *transformer, Tokenizer *tokenizer, Sampler *sampler, 
     if (num_prompt_tokens < 1) {
         fprintf(stderr, "something is wrong, expected at least 1 prompt token\n");
         exit(EXIT_FAILURE);
-    }
+    } // End generate()
 
     // start the main loop
     long start = 0;  // used to time our code, only initialized after first iteration
@@ -842,10 +844,8 @@ void generate(Transformer *transformer, Tokenizer *tokenizer, Sampler *sampler, 
         }
      }
 #endif
-
     free(prompt_tokens);
-
-}
+} // End generate()
 
 
 void read_stdin(const char* guide, char* buffer, size_t bufsize) {
@@ -857,7 +857,7 @@ void read_stdin(const char* guide, char* buffer, size_t bufsize) {
             buffer[len - 1] = '\0'; // strip newline
         }
     }
-}
+} // End read_stdin()
 
 // ----------------------------------------------------------------------------
 // chat loop
@@ -947,7 +947,7 @@ void chat(Transformer *transformer, Tokenizer *tokenizer, Sampler *sampler,
     }
     printf("\n");
     free(prompt_tokens);
-}
+} // End chat()
 
 
 // ----------------------------------------------------------------------------
@@ -967,14 +967,14 @@ void error_usage() {
     fprintf(stderr, "  -m <string> mode: generate|chat, default: generate\n");
     fprintf(stderr, "  -y <string> (optional) system prompt in chat mode\n");
     exit(EXIT_FAILURE);
-}
+} // End error_usage()
 
-void extract_path_without_filename(char *path) {
+void remove_filename_from_path(char *path) {
     char *last_slash = strrchr(path, '/');
     if (last_slash != NULL) {
         *last_slash = '\0';  // Replace the last slash with a null terminator
     }
-}
+} // End remove_filename_from_path()
 
 int main(int argc, char *argv[]) {
     // default parameters
@@ -990,10 +990,10 @@ int main(int argc, char *argv[]) {
     // Poor man's C argparse so we can override the defaults above from the command line.
     if (argc >= 2) {
         // Get the full checkpoint path from the command line.
-        strncpy(checkpoint_path_buffer, argv[1], sizeof(checkpoint_path_buffer)-1);
-        checkpoint_path_buffer[sizeof(checkpoint_path_buffer) - 1] = '\0';  // Ensure null termination
-        strncpy(copy_of_checkpoint_path_buffer, checkpoint_path_buffer, sizeof(checkpoint_path_buffer)-1);
-        extract_path_without_filename(checkpoint_path_buffer);
+        strncpy(checkpoint_path, argv[1], sizeof(checkpoint_path)-1);
+        checkpoint_path[sizeof(checkpoint_path) - 1] = '\0';  // Ensure null termination
+        strncpy(copy_of_checkpoint_path, checkpoint_path, sizeof(checkpoint_path)-1);
+        remove_filename_from_path(checkpoint_path);
     }
     else {
          error_usage();
@@ -1015,11 +1015,11 @@ int main(int argc, char *argv[]) {
         else { error_usage(); }
     } //End for
 
-#if defined _PRINT_EMBEDDINGS_
+#if defined _EMIT_EMBEDDINGS_
 
 #if defined _WRITE_EMB_FILE_
     // Open an output file to begin saving the embeddings into a csv file.
-    strncpy(embeddings_path_buffer, checkpoint_path_buffer, sizeof(embeddings_path_buffer) - 1);
+    strncpy(embeddings_path_buffer, checkpoint_path, sizeof(embeddings_path_buffer) - 1);
     strcat(embeddings_path_buffer, "/embeddings.csv");
     embeddings_file = fopen("$embeddings_path_buffer", "w");
     if (embeddings_file == NULL) {
@@ -1039,7 +1039,7 @@ int main(int argc, char *argv[]) {
 
     // build the Transformer via the model .bin file
     Transformer transformer;
-    build_transformer(&transformer, copy_of_checkpoint_path_buffer);
+    build_transformer(&transformer, copy_of_checkpoint_path);
 
     if (steps == 0 || steps > transformer.config.seq_len) {
         steps = transformer.config.seq_len; // override to ~max length
@@ -1088,4 +1088,4 @@ int main(int argc, char *argv[]) {
     free_tokenizer(&tokenizer);
     free_transformer(&transformer);
     return 0;
-}
+} // End main()
